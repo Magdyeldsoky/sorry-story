@@ -1,69 +1,60 @@
-import Image from "next/image";
+"use client";
+
+import { AnimatePresence } from "framer-motion";
+import { useState } from "react";
+import IntroLetter from "@/components/IntroLetter";
+import NanoLoveTransition from "@/components/NanoLoveTransition";
+import NanoStory from "@/components/NanoStory";
+
+// كلام الصفحة الأولى
+const REAL_INTRO_TEXT = `بصي يا حبيبتي، أنا قعدت أفكر كتير إزاي أقدر أفرحك أو أعملك هدية تعوضك عن اليومين اللي فاتوا دول. فكرت في إكسسوارات أو أي حاجة تانية، بس حسيت إن مفيش حاجة من دول هتكون كفاية.
+لحد ما اكتشفت إن فيه حاجة أنا شاطر فيها، وهي البرمجة، فقررت أعملك الموقع ده ❤️
+عملته عشان نوثق فيه يوم خطوبتنا، يوم الجمعة (13/11/2026)، ويبقى ذكرى حلوة نرجعلها كل ما نحب نفتكر اليوم ده.
+وعاوز كمان أوثق فيه حبي ليكي، وأقولك إني آسف، نيابة عن مجدي، ونيابة عن العالم كله، وعن أي حاجة زعلتك أو خلتك تضايقي.
+يمكن الموقع ده مش هيعوضك عن كل حاجة، بس أتمنى يكون طريقة بسيطة أقدر أوصلك بيها قد إيه إنتِ غالية عندي، وقد إيه أنا بحبك ❤️`;
+
+// رسالة الصفحة الأخيرة مقسمة لفقرات عشان تظهر بشكل مرتب ومنسق بتأثير النانو
+const REAL_STORY_PARAGRAPHS = [
+  "مش عارف بصراحة أقول إيه، أصل مهما حاولت أوصفلك إحساسي، مش هقدر أحطه في كلمة من أربع حروف، اللي هي «بحبك».",
+  "بس یعنی... أنا بحبك يا منه. بحب رقتك، وضحكتك، وكسوفك، وكل حاجة فيكي. بحب ضحكتك، وبحب لما تتكسفي وتبقي مش عارفة تتكلمي وتفضلي تضحكي.",
+  "وماما كمان حبتك أوي، ومريم حبتك، ومحمد الصغير كمان باين عليه حبك هو كمان. عموماً مقدرش ألومه، لأني أنا كمان واقع!",
+  "عارفة؟ هقولك حاجة يمكن أول مرة أقولها ليكي... أنا من أول ما كنت بشوفك في إعدادي وأنا منبهر بيكي بجد. وقعت فيكي من وقتها، وكان نفسي أتقدم، بس أسباب كتير منعتني. الوقت، لأني مكنتش جاهز، ونفسي كمان، لأني مكنتش لسه قربت من ربنا بالشكل الكافي.",
+  "كنت ببصلك وأقول: هي فين وأنا فين؟ هي حلوة أوي ونضيفة أوي، وكنت خايف أقرب وأكون سبب في إني أوسخ حاجة جميلة زي دي.",
+  "ويمكن ده كان واحد من الأسباب اللي خلتني أقرب من ربنا أكتر، لأني فهمت إن لو عاوز أتجوز واحدة بالنضافة والجمال ده، فلازم أنا كمان أقرب من ربنا وأبقى أحسن.",
+  "إنتِ نضيفة يا منه، نضيفة أوي، وأنا بجد محظوظ بيكي.",
+  "وعاوزك متفكريش في أي وقت، ومهما كانت المشكلة، إن ممكن أمشي وأسيبك. إحنا بنتناقش عشان نحل المشكلة سوا، ممكن نتخانق، وممكن نوصل لحتة ضيقة ومش عارفين نتصرف إزاي، بس أكيد لازم نعديها سوا، ومحدش فينا يسيب التاني.",
+  "إنتِ مناسبة ليا، وأنا هفضل أحاول أبقى مناسب ليكي، وهنفضل نحاول مع بعض ونكبر ونتغير للأحسن.",
+  "الحاجة الوحيدة اللي ممكن تخليني أمشي هي إن إنتِ متكونيش عاوزاني، غير كده أنا هفضل جنبك، وآخد بالي منك، وأحميكي من أي حاجة وأي حد، ومحدش هيقدر يأذيكي طول ما أنا موجود.",
+  "أنا عارف إن عندي كلام كتير أوي نفسي أقولهولك، وإن مهما كتبت مش هقدر أوصفلك كل اللي جوايا، بس ممكن أختصر كل ده في جملة واحدة:",
+  "أنا بحبك يا منه. ❤️"
+];
 
 export default function Home() {
+  const [step, setStep] = useState<"intro" | "transition" | "story">("intro");
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className="min-h-screen bg-background text-foreground selection:bg-primary selection:text-primary-foreground">
+      <AnimatePresence mode="wait">
+        {step === "intro" && (
+          <IntroLetter
+            key="intro"
+            dateLabel="١٣ نوفمبر ٢٠٢٦ • توثيق ذكرى الخطوبة"
+            text={REAL_INTRO_TEXT}
+            onComplete={() => setStep("transition")}
+          />
+        )}
+
+        {step === "transition" && (
+          <NanoLoveTransition
+            key="transition"
+            onComplete={() => setStep("story")}
+          />
+        )}
+
+        {step === "story" && (
+          <NanoStory key="story" paragraphs={REAL_STORY_PARAGRAPHS} />
+        )}
+      </AnimatePresence>
+    </main>
   );
 }
