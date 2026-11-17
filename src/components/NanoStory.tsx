@@ -199,42 +199,43 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       dir="rtl"
       className="min-h-screen relative overflow-hidden"
     >
-      <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px]" />
+      <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-primary/10 rounded-full blur-[100px]" />
 
-      <div className="relative z-10 mx-auto w-full max-w-2xl px-4 sm:px-6 py-10 sm:py-14 space-y-12 sm:space-y-16">
+      {/* تحسين الحاويات والعرض لتكون ملمومة ومناسبة جداً للموبايل واللابتوب */}
+      <div className="relative z-10 mx-auto w-full max-w-xl sm:max-w-2xl px-4 sm:px-6 py-8 sm:py-14 space-y-10 sm:space-y-14">
         
-        {/* 1. كارت الرسالة الأساسية (ملموم، غير عريض، يظهر مرة واحدة) */}
+        {/* 1. كارت الرسالة الأساسية */}
         <motion.section 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
-          className="bg-card/90 backdrop-blur-xl border border-border/80 rounded-3xl p-6 sm:p-10 shadow-xl space-y-6 text-center sm:text-right"
+          className="bg-card/90 backdrop-blur-xl border border-border/80 rounded-2xl sm:rounded-3xl p-5 sm:p-9 shadow-xl space-y-4 sm:space-y-6 text-right"
         >
-          <div className="flex items-center justify-between border-b border-border/60 pb-4">
-            <div className="flex items-center gap-2 text-primary text-sm sm:text-base font-bold mx-auto sm:mx-0">
+          <div className="flex items-center justify-between border-b border-border/60 pb-3 sm:pb-4">
+            <div className="flex items-center gap-2 text-primary text-xs sm:text-sm font-bold">
               <Sparkles className="w-4 h-4" />
               <span>رسالة من القلب</span>
             </div>
-            <Heart className="w-5 h-5 text-primary fill-primary/30 animate-pulse hidden sm:block" />
+            <Heart className="w-4.5 h-4.5 text-primary fill-primary/30 animate-pulse" />
           </div>
 
-          <div className="space-y-5 text-base sm:text-lg leading-[2.2] text-foreground/90 font-medium">
+          <div className="space-y-4 text-sm sm:text-base leading-[2.1] sm:leading-[2.2] text-foreground/90 font-medium">
             {paragraphs.map((paragraph, pIdx) => {
               const words = paragraph.split(" ");
               return (
-                <p key={pIdx} className="flex flex-wrap justify-center sm:justify-start gap-x-2 gap-y-1">
+                <p key={pIdx} className="flex flex-wrap justify-start gap-x-1.5 gap-y-1">
                   {words.map((word, wIdx) => {
-                    const currentDelay = globalWordIndex * 0.05;
+                    const currentDelay = globalWordIndex * 0.04;
                     globalWordIndex++;
-                    const randomX = ((wIdx * 17) % 20) - 10;
-                    const randomY = ((pIdx * 13 + wIdx) % 16) - 8;
+                    const randomX = ((wIdx * 17) % 15) - 7;
+                    const randomY = ((pIdx * 13 + wIdx) % 12) - 6;
 
                     return (
                       <motion.span
                         key={`${pIdx}-${wIdx}`}
-                        initial={{ opacity: 0, x: randomX, y: randomY, scale: 1.2, filter: "blur(6px)" }}
+                        initial={{ opacity: 0, x: randomX, y: randomY, scale: 1.15, filter: "blur(4px)" }}
                         animate={{ opacity: 1, x: 0, y: 0, scale: 1, filter: "blur(0px)" }}
-                        transition={{ duration: 0.4, delay: currentDelay, ease: [0.22, 1, 0.36, 1] }}
+                        transition={{ duration: 0.35, delay: currentDelay, ease: [0.22, 1, 0.36, 1] }}
                         className="relative inline-block"
                       >
                         {word}
@@ -248,37 +249,36 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
         </motion.section>
 
         {/* فاصل توضيحي لمكان البوستات والذكريات */}
-        <div className="text-center space-y-2 pt-4">
-          <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 px-4 py-1.5 rounded-full text-primary text-xs font-bold">
-            <MessageSquareHeart className="w-4 h-4" />
+        <div className="text-center space-y-1.5 pt-2">
+          <div className="inline-flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-3 py-1 rounded-full text-primary text-[11px] sm:text-xs font-bold">
+            <MessageSquareHeart className="w-3.5 h-3.5" />
             <span>مساحة البوستات وذكرياتنا المشتركة</span>
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-foreground">
+          <h2 className="text-lg sm:text-2xl font-bold text-foreground">
             ألبوم ذكرياتنا الحلوة 📸❤️
           </h2>
-          <p className="text-xs sm:text-sm text-muted-foreground max-w-sm mx-auto">
-            هنا مكان البوستات واللحظات اللي بنوثقها سوا... تقدري تضيفي أو تعدلي أي ذكرى في أي وقت.
+          <p className="text-xs text-muted-foreground max-w-xs sm:max-w-sm mx-auto">
+            هنا مكان البوستات واللحظات اللي بنوثقها سوا.
           </p>
         </div>
 
         {/* 2. ألبوم الذكريات والبوستات */}
-        <section className="space-y-8">
+        <section className="space-y-6">
           {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-7 h-7 text-primary animate-spin" />
+            <div className="flex justify-center py-6">
+              <Loader2 className="w-6 h-6 text-primary animate-spin" />
             </div>
           ) : memories.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center text-muted-foreground border-2 border-dashed border-border rounded-3xl bg-card/40">
-              <ImagePlus className="w-8 h-8 text-primary/70" />
-              <p className="text-sm">لسه مفيش بوستات أو ذكريات، ابدأ بأول ذكرى من الفورم أدناه</p>
+            <div className="flex flex-col items-center gap-2.5 py-10 text-center text-muted-foreground border-2 border-dashed border-border rounded-2xl sm:rounded-3xl bg-card/40 px-4">
+              <ImagePlus className="w-7 h-7 text-primary/70" />
+              <p className="text-xs sm:text-sm">لسه مفيش بوستات أو ذكريات، ابدأ بأول ذكرى من الفورم أدناه</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 gap-5">
               {memories.map((item) => {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
                 
-                // معالجة الصورة لضمان عرضها كصورة حقيقية وليست ككتابات Base64
                 const imageSrc = item.image 
                   ? (item.image.startsWith("data:image") ? item.image : `data:image/jpeg;base64,${item.image}`) 
                   : "";
@@ -287,9 +287,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                   <motion.article
                     key={item.id}
                     layout
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`bg-card/90 backdrop-blur-md border rounded-3xl overflow-hidden shadow-lg flex flex-col group transition-colors ${
+                    className={`bg-card/90 backdrop-blur-md border rounded-2xl sm:rounded-3xl overflow-hidden shadow-md flex flex-col group transition-colors ${
                       editingId === item.id ? "border-primary/60" : "border-border"
                     }`}
                   >
@@ -306,26 +306,27 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                       </div>
                     )}
 
-                    <div className="p-5 flex-1 flex flex-col gap-4">
-                      <p className="flex-1 text-base sm:text-lg font-medium text-foreground leading-relaxed whitespace-pre-line break-words">
+                    <div className="p-4 sm:p-5 flex-1 flex flex-col gap-3">
+                      <p className="flex-1 text-sm sm:text-base font-medium text-foreground leading-relaxed whitespace-pre-line break-words">
                         {item.caption}
                       </p>
 
-                      <div className="pt-3 border-t border-border/60 flex items-center justify-between gap-2 text-xs sm:text-sm text-muted-foreground min-h-[2.5rem]">
+                      {/* شريط الأزرار والتاريخ بحجم متناسق جداً للموبايل واللابتوب */}
+                      <div className="pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs text-muted-foreground min-h-[2.25rem]">
                         {isConfirming ? (
                           <>
-                            <span className="font-semibold text-destructive">مسح البوست ده؟</span>
-                            <div className="flex items-center gap-2">
+                            <span className="font-semibold text-destructive text-xs">مسح البوست ده؟</span>
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleDelete(item.id)}
                                 disabled={isDeleting}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-xs"
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-[11px]"
                               >
                                 {isDeleting ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <Loader2 className="w-3 h-3 animate-spin" />
                                 ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3 h-3" />
                                 )}
                                 <span>تأكيد</span>
                               </button>
@@ -333,7 +334,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                                 type="button"
                                 onClick={() => setConfirmDeleteId(null)}
                                 disabled={isDeleting}
-                                className="px-3 py-1.5 rounded-lg border border-border text-foreground cursor-pointer hover:bg-accent/40 text-xs"
+                                className="px-2.5 py-1 rounded-md border border-border text-foreground cursor-pointer hover:bg-accent/40 text-[11px]"
                               >
                                 إلغاء
                               </button>
@@ -341,27 +342,28 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                           </>
                         ) : (
                           <>
-                            <span className="flex items-center gap-1.5 font-mono text-xs">
-                              <Calendar className="w-3.5 h-3.5 text-primary" />
+                            <span className="flex items-center gap-1 font-mono text-[11px] sm:text-xs">
+                              <Calendar className="w-3 h-3 text-primary" />
                               {item.date ? String(item.date).split("T")[0] : ""}
                             </span>
 
-                            <div className="flex items-center gap-2">
+                            {/* أزرار التعديل والحذف بحجم صغير ومناسب جداً للشاشات الصغيرة */}
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleEditClick(item)}
-                                className="flex items-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-3 py-1.5 rounded-lg border border-primary/20 transition-colors text-xs"
+                                className="flex items-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-2.5 py-1 rounded-md border border-primary/20 transition-colors text-[11px] sm:text-xs"
                               >
-                                <Edit3 className="w-3.5 h-3.5" />
+                                <Edit3 className="w-3 h-3" />
                                 <span>تعديل</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteId(item.id)}
                                 aria-label="مسح البوست"
-                                className="flex items-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-3 py-1.5 rounded-lg border border-destructive/20 transition-colors text-xs"
+                                className="flex items-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-2.5 py-1 rounded-md border border-destructive/20 transition-colors text-[11px] sm:text-xs"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" />
                                 <span>مسح</span>
                               </button>
                             </div>
@@ -376,9 +378,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           )}
 
           {successText && (
-            <div className="p-3.5 rounded-2xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-400 flex items-center justify-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span className="font-bold text-xs sm:text-sm">{successText}</span>
+            <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-400 flex items-center justify-center gap-2 text-xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="font-bold">{successText}</span>
             </div>
           )}
         </section>
@@ -388,63 +390,63 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           <form
             ref={formRef}
             onSubmit={handleSubmit}
-            className={`bg-card/95 backdrop-blur-xl border rounded-3xl p-6 sm:p-8 shadow-xl space-y-5 transition-colors ${
+            className={`bg-card/95 backdrop-blur-xl border rounded-2xl sm:rounded-3xl p-5 sm:p-7 shadow-xl space-y-4 transition-colors ${
               editingId ? "border-primary/60" : "border-border"
             }`}
           >
-            <div className="flex items-center justify-between gap-3 pb-3 border-b border-border/60">
-              <h3 className="text-base sm:text-lg font-bold text-foreground flex items-center gap-2">
-                <MessageSquareHeart className="w-4.5 h-4.5 text-primary" />
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/60">
+              <h3 className="text-sm sm:text-base font-bold text-foreground flex items-center gap-1.5">
+                <MessageSquareHeart className="w-4 h-4 text-primary" />
                 <span>{editingId ? "تعديل البوست ✏️" : "أضف بوست أو ذكرى جديدة ✨"}</span>
               </h3>
               {editingId && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="flex items-center gap-1 text-xs text-destructive hover:underline cursor-pointer"
+                  className="flex items-center gap-1 text-[11px] sm:text-xs text-destructive hover:underline cursor-pointer"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3 h-3" />
                   إلغاء التعديل
                 </button>
               )}
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs sm:text-sm font-medium text-foreground">صورة البوست</label>
-              <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-border rounded-2xl cursor-pointer bg-background/50 hover:bg-accent/30 transition-colors overflow-hidden">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">صورة البوست</label>
+              <label className="flex flex-col items-center justify-center w-full h-32 sm:h-36 border-2 border-dashed border-border rounded-xl sm:rounded-2xl cursor-pointer bg-background/50 hover:bg-accent/30 transition-colors overflow-hidden">
                 {imagePreview ? (
                   <img src={imagePreview} alt="Preview" className="w-full h-full object-contain p-2" />
                 ) : (
-                  <div className="flex flex-col items-center justify-center text-muted-foreground gap-1.5">
-                    <ImagePlus className="w-7 h-7 text-primary" />
-                    <span className="text-xs sm:text-sm">اضغط لاختيار صورة من جهازك</span>
+                  <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
+                    <ImagePlus className="w-6 h-6 text-primary" />
+                    <span className="text-[11px] sm:text-xs">اضغط لاختيار صورة من جهازك</span>
                   </div>
                 )}
                 <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
               </label>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs sm:text-sm font-medium text-foreground">اكتب الكلام أو التفاصيل هنا</label>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">اكتب الكلام أو التفاصيل هنا</label>
               <textarea
                 rows={3}
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 placeholder="اكتب هنا التفاصيل أو الشعور في اللحظة دي..."
-                className="w-full rounded-xl bg-background border border-input px-4 py-3 text-sm sm:text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                className="w-full rounded-xl bg-background border border-input px-3.5 py-2.5 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                 required
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs sm:text-sm font-medium text-foreground">التاريخ</label>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-foreground">التاريخ</label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-xl bg-background border border-input px-4 py-2.5 text-sm sm:text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-xl bg-background border border-input px-3.5 py-2 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <p className="text-[11px] sm:text-xs text-muted-foreground">
+              <p className="text-[10px] sm:text-[11px] text-muted-foreground">
                 لو تركته فارغاً سيتم تسجيل تاريخ اليوم تلقائياً
               </p>
             </div>
@@ -452,16 +454,16 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl bg-primary text-primary-foreground font-bold text-base shadow-md hover:opacity-95 transition-all cursor-pointer disabled:opacity-60"
+              className="w-full flex items-center justify-center gap-2 py-3 px-5 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-bold text-xs sm:text-sm shadow-md hover:opacity-95 transition-all cursor-pointer disabled:opacity-60"
             >
               {submitting ? (
                 <>
-                  <Loader2 className="w-4.5 h-4.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   <span>جاري النشر والحفظ...</span>
                 </>
               ) : (
                 <>
-                  <Send className="w-4.5 h-4.5" />
+                  <Send className="w-4 h-4" />
                   <span>{editingId ? "حفظ التعديلات" : "نشر البوست في الألبوم ❤️"}</span>
                 </>
               )}
