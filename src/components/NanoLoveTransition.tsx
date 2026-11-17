@@ -434,7 +434,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                     {imageSrc ? (
                       <div 
                         onClick={() => setLightboxImage(imageSrc)}
-                        className="relative w-full aspect-video bg-muted overflow-hidden cursor-pointer group/img"
+                        className="relative w-full aspect-[4/3] sm:aspect-video bg-muted overflow-hidden cursor-pointer group/img"
                         title="اضغط لتكبير الصورة"
                       >
                         <img
@@ -467,22 +467,22 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                     )}
 
                     <div className="p-4 sm:p-5 flex-1 flex flex-col gap-3">
-                      <p className="flex-1 text-sm sm:text-base font-medium text-foreground leading-relaxed whitespace-pre-line break-words">
+                      <p className="flex-1 text-[15px] sm:text-base font-medium text-foreground text-right leading-[1.9] sm:leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
                         {removeImageUrlFromCaption(item.caption, imageSrc)}
                       </p>
 
-                      <div className="pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs text-muted-foreground min-h-[2.25rem]">
+                      <div className="pt-3 border-t border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-2 text-xs text-muted-foreground">
                         {isConfirming ? (
                           <>
                             <span className="font-semibold text-destructive text-xs">
                               مسح البوست ده؟
                             </span>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleDelete(item.id)}
                                 disabled={isDeleting}
-                                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-[11px]"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 px-2.5 py-1.5 sm:py-1 rounded-lg bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-[11px] sm:text-xs transition-colors"
                               >
                                 {isDeleting ? (
                                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -495,7 +495,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                                 type="button"
                                 onClick={() => setConfirmDeleteId(null)}
                                 disabled={isDeleting}
-                                className="px-2.5 py-1 rounded-md border border-border text-foreground cursor-pointer hover:bg-accent/40 text-[11px]"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 px-2.5 py-1.5 sm:py-1 rounded-lg border border-border text-foreground cursor-pointer hover:bg-accent/40 text-[11px] sm:text-xs transition-colors"
                               >
                                 إلغاء
                               </button>
@@ -508,11 +508,11 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                               {item.date ? String(item.date).split("T")[0] : ""}
                             </span>
 
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleEditClick(item)}
-                                className="flex items-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-2.5 py-1 rounded-md border border-primary/20 transition-colors text-[11px] sm:text-xs"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 sm:py-1 rounded-lg border border-primary/20 transition-colors text-[11px] sm:text-xs"
                               >
                                 <Edit3 className="w-3 h-3" />
                                 <span>تعديل</span>
@@ -521,7 +521,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                                 type="button"
                                 onClick={() => setConfirmDeleteId(item.id)}
                                 aria-label="مسح البوست"
-                                className="flex items-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-2.5 py-1 rounded-md border border-destructive/20 transition-colors text-[11px] sm:text-xs"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-2.5 py-1.5 sm:py-1 rounded-lg border border-destructive/20 transition-colors text-[11px] sm:text-xs"
                               >
                                 <Trash2 className="w-3 h-3" />
                                 <span>مسح</span>
