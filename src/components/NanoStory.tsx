@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Calendar,
   CheckCircle2,
@@ -13,6 +13,7 @@ import {
   Sparkles,
   Trash2,
   X,
+  Maximize2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -26,6 +27,59 @@ interface MemoryItem {
   caption: string;
   date: string;
   createdAt: number;
+}
+
+/**
+ * Normalize image values coming from Google Sheets.
+ * Supports direct URLs, data URLs, legacy base64 values, and =IMAGE("url") values.
+ */
+function normalizeImageSource(value: unknown): string {
+  if (typeof value !== "string") return "";
+
+  let raw = value.trim();
+  if (!raw) return "";
+
+  // Handle Google Sheets IMAGE("https://...") formulas.
+  const formulaMatch = raw.match(/=IMAGE\(\s*["']([^"']+)["']/i);
+  if (formulaMatch?.[1]) raw = formulaMatch[1].trim();
+
+  // Handle values wrapped in quotes.
+  raw = raw.replace(/^["']|["']$/g, "").trim();
+
+  if (/^(https?:\/\/|data:image\/)/i.test(raw)) return raw;
+
+  // Legacy Base64 image values.
+  if (raw.length > 100 && /^[A-Za-z0-9+/=\s]+$/.test(raw)) {
+    return `data:image/jpeg;base64,${raw.replace(/\s/g, "")}`;
+  }
+
+  return "";
+}
+
+/**
+ * Recover an image URL if it was mistakenly saved in the caption/message cell.
+ * Cloudinary URLs are prioritized, then common direct image URLs.
+ */
+function extractImageUrl(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (!text) return "";
+
+  const cloudinaryMatch = text.match(/https?:\/\/res\.cloudinary\.com\/[^\s"'<>]+/i);
+  if (cloudinaryMatch?.[0]) return cloudinaryMatch[0].replace(/[),.;]+$/, "");
+
+  const imageMatch = text.match(/https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|gif|webp|avif|bmp)(?:\?[^\s"'<>]*)?/i);
+  if (imageMatch?.[0]) return imageMatch[0].replace(/[),.;]+$/, "");
+
+  return "";
+}
+
+function removeImageUrlFromCaption(caption: string, imageUrl: string): string {
+  if (!caption || !imageUrl) return caption;
+  return caption
+    .replace(imageUrl, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 export default function NanoStory({ paragraphs }: NanoStoryProps) {
@@ -45,6 +99,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // حالة الـ Lightbox لعرض الصورة بحجم كبير
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
   const formRef = useRef<HTMLFormElement | null>(null);
 
   const showSuccess = (text: string) => {
@@ -62,14 +119,35 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
 
       if (Array.isArray(data)) {
         const formatted = data
-          .filter((item: any) => item.id && (item.caption || item.image))
-          .map((item: any, index: number) => ({
-            id: item.id ? String(item.id) : String(index + Date.now()),
-            image: item.image || "",
-            caption: item.caption || item.message || "",
-            date: item.date || "",
-            createdAt: item.createdAt ? Number(item.createdAt) : Date.now(),
-          }));
+          .map((item: any, index: number) => {
+            // Read both normal and differently-capitalized sheet headers.
+            const getValue = (key: string) => {
+              if (item?.[key] !== undefined && item?.[key] !== null) return item[key];
+              const actualKey = Object.keys(item || {}).find(
+                (candidate) => candidate.toLowerCase().trim() === key.toLowerCase()
+              );
+              return actualKey ? item[actualKey] : "";
+            };
+
+            const id = getValue("id");
+            const rawImage = getValue("image") || getValue("photo") || getValue("imageUrl");
+            const rawCaption = String(getValue("caption") || getValue("message") || "");
+            const normalizedImage = normalizeImageSource(rawImage) || extractImageUrl(rawImage);
+            const imageFoundInCaption = normalizedImage ? "" : extractImageUrl(rawCaption);
+            const image = normalizedImage || imageFoundInCaption;
+            const caption = imageFoundInCaption
+              ? removeImageUrlFromCaption(rawCaption, imageFoundInCaption)
+              : rawCaption;
+
+            return {
+              id: id ? String(id) : String(index + Date.now()),
+              image,
+              caption,
+              date: getValue("date") || "",
+              createdAt: getValue("createdAt") ? Number(getValue("createdAt")) : Date.now(),
+            };
+          })
+          .filter((item: MemoryItem) => item.id && (item.caption || item.image));
 
         setMemories([...formatted].reverse());
       }
@@ -130,10 +208,10 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   const handleEditClick = (item: MemoryItem) => {
     setConfirmDeleteId(null);
     setEditingId(item.id);
-    const oldImagePreview =
-      item.image && !item.image.startsWith("http") && !item.image.startsWith("data:image") && item.image.length > 100
-        ? `data:image/jpeg;base64,${item.image}`
-        : item.image;
+    let oldImagePreview = item.image;
+    if (item.image && !item.image.startsWith("http") && !item.image.startsWith("data:image") && item.image.length > 100) {
+      oldImagePreview = `data:image/jpeg;base64,${item.image}`;
+    }
     setImagePreview(oldImagePreview || "");
     setSelectedFile(null);
     setCaption(item.caption);
@@ -173,13 +251,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
     setSubmitting(true);
 
     try {
-      // لو المستخدم اختار صورة جديدة، ارفعها إلى Cloudinary أولاً.
-      // لو بيعدل بوست ومختارش صورة جديدة، هنحتفظ برابط الصورة القديمة.
       let finalImage = imagePreview;
       let fileToUpload = selectedFile;
 
-      // لو بنعدل صورة قديمة محفوظة بصيغة Base64، نرفعها إلى Cloudinary
-      // حتى لا نعيد تخزين نص Base64 داخل Google Sheets.
       if (!fileToUpload && editingId && imagePreview.startsWith("data:image")) {
         const oldImageBlob = await fetch(imagePreview).then((response) => response.blob());
         fileToUpload = new File([oldImageBlob], "memory-image.jpg", {
@@ -249,7 +323,8 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-primary/10 rounded-full blur-[100px]" />
 
       <div className="relative z-10 mx-auto w-full max-w-xl sm:max-w-2xl px-4 sm:px-6 py-8 sm:py-14 space-y-10 sm:space-y-14">
-        {/* 1. كارت الرسالة الأساسية */}
+        
+        {/* كارت الرسالة الأساسية */}
         <motion.section
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -343,19 +418,8 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
 
-                // دعم روابط Cloudinary والصور القديمة السليمة فقط.
-                let imageSrc = "";
-                if (item.image && typeof item.image === "string") {
-                  if (
-                    item.image.startsWith("https://") ||
-                    item.image.startsWith("http://") ||
-                    item.image.startsWith("data:image")
-                  ) {
-                    imageSrc = item.image;
-                  } else if (item.image.length > 100 && !item.image.includes(" ")) {
-                    imageSrc = `data:image/jpeg;base64,${item.image}`;
-                  }
-                }
+                // تجهيز رابط الصورة سواء كان رابط Cloudinary أو صورة Base64 قديمة.
+                const imageSrc = normalizeImageSource(item.image) || extractImageUrl(item.caption);
 
                 return (
                   <motion.article
@@ -367,22 +431,44 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                       editingId === item.id ? "border-primary/60" : "border-border"
                     }`}
                   >
-                    {imageSrc && (
-                      <div className="relative w-full aspect-video bg-muted overflow-hidden">
+                    {imageSrc ? (
+                      <div 
+                        onClick={() => setLightboxImage(imageSrc)}
+                        className="relative w-full aspect-video bg-muted overflow-hidden cursor-pointer group/img"
+                        title="اضغط لتكبير الصورة"
+                      >
                         <img
                           src={imageSrc}
-                          alt={item.caption}
+                          alt={item.caption || "ذكرى"}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = "none";
+                            const target = e.currentTarget;
+                            target.style.display = "none";
+                            const parent = target.parentElement;
+                            if (parent && !parent.querySelector(".fallback-placeholder")) {
+                              const fallback = document.createElement("div");
+                              fallback.className = "fallback-placeholder flex flex-col items-center justify-center h-full text-muted-foreground gap-1 text-xs bg-muted/80";
+                              fallback.innerHTML = `<svg class="w-6 h-6 text-primary/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>تعذر تحميل الصورة</span>`;
+                              parent.appendChild(fallback);
+                            }
                           }}
                         />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                          <span className="bg-background/80 backdrop-blur-md text-foreground px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 shadow-lg">
+                            <Maximize2 className="w-3.5 h-3.5" /> تكبير الصورة
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-full aspect-video bg-muted/60 flex flex-col items-center justify-center text-muted-foreground gap-1 text-xs">
+                        <ImagePlus className="w-6 h-6 text-primary/40" />
+                        <span>لا توجد صورة مرفقة</span>
                       </div>
                     )}
 
                     <div className="p-4 sm:p-5 flex-1 flex flex-col gap-3">
                       <p className="flex-1 text-sm sm:text-base font-medium text-foreground leading-relaxed whitespace-pre-line break-words">
-                        {item.caption}
+                        {removeImageUrlFromCaption(item.caption, imageSrc)}
                       </p>
 
                       <div className="pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs text-muted-foreground min-h-[2.25rem]">
@@ -562,6 +648,35 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           </form>
         </section>
       </div>
+
+      {/* نافذة العرض المكبر (Lightbox) */}
+      <AnimatePresence>
+        {lightboxImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLightboxImage(null)}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+          >
+            <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setLightboxImage(null)}
+                className="absolute -top-12 right-0 text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors cursor-pointer"
+                aria-label="إغلاق"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <img
+                src={lightboxImage}
+                alt="Expanded memory"
+                className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

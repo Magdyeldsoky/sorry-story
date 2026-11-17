@@ -1,14 +1,13 @@
 
 import { NextResponse } from "next/server";
-import { createHmac } from "crypto";
+import { createHash } from "crypto";
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-    // التأكد من وجود بيانات Cloudinary
     if (!cloudName || !apiKey || !apiSecret) {
       return NextResponse.json(
         { error: "Cloudinary environment variables are missing" },
@@ -16,18 +15,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // استقبال الصورة
-    const formData = await request.formData();
+    const formData = await req.formData();
     const file = formData.get("file");
 
     if (!(file instanceof File)) {
       return NextResponse.json(
-        { error: "No image uploaded" },
+        { error: "No image file provided" },
         { status: 400 }
       );
     }
 
-    // التأكد أن الملف صورة
     if (!file.type.startsWith("image/")) {
       return NextResponse.json(
         { error: "Only image files are allowed" },
@@ -35,10 +32,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // الحد الأقصى لحجم الصورة 10MB
     if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json(
-        { error: "Image must be smaller than 10MB" },
+        { error: "Image size must be less than 10MB" },
         { status: 400 }
       );
     }
@@ -46,44 +42,42 @@ export async function POST(request: Request) {
     const timestamp = Math.floor(Date.now() / 1000);
     const folder = "memories";
 
-    // إنشاء التوقيع الأمني
-    const signatureString = `folder=${folder}&timestamp=${timestamp}`;
+    // Cloudinary requires SHA-1, not HMAC
+    const stringToSign = `folder=${folder}&timestamp=${timestamp}`;
 
-    const signature = createHmac("sha1", apiSecret)
-      .update(signatureString)
+    const signature = createHash("sha1")
+      .update(stringToSign + apiSecret)
       .digest("hex");
 
-    // تجهيز بيانات الرفع
-    const uploadData = new FormData();
+    const cloudinaryForm = new FormData();
 
-    uploadData.append("file", file);
-    uploadData.append("api_key", apiKey);
-    uploadData.append("timestamp", String(timestamp));
-    uploadData.append("folder", folder);
-    uploadData.append("signature", signature);
+    cloudinaryForm.append("file", file);
+    cloudinaryForm.append("api_key", apiKey);
+    cloudinaryForm.append("timestamp", timestamp.toString());
+    cloudinaryForm.append("folder", folder);
+    cloudinaryForm.append("signature", signature);
 
-    // رفع الصورة إلى Cloudinary
-    const response = await fetch(
+    const uploadResponse = await fetch(
       `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
       {
         method: "POST",
-        body: uploadData,
+        body: cloudinaryForm,
       }
     );
 
-    const result = await response.json();
+    const result = await uploadResponse.json();
 
-    if (!response.ok) {
+    if (!uploadResponse.ok) {
       console.error("Cloudinary upload error:", result);
 
       return NextResponse.json(
-        { error: "Image upload failed" },
-        { status: 502 }
+        { error: result.error?.message || "Cloudinary upload failed" },
+        { status: uploadResponse.status }
       );
     }
 
-    // إرجاع رابط الصورة
     return NextResponse.json({
+      success: true,
       url: result.secure_url,
     });
 
@@ -91,7 +85,7 @@ export async function POST(request: Request) {
     console.error("Upload route error:", error);
 
     return NextResponse.json(
-      { error: "Something went wrong while uploading" },
+      { error: "Internal server error during image upload" },
       { status: 500 }
     );
   }
