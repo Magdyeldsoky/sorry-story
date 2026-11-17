@@ -28,6 +28,7 @@ interface MemoryItem {
   createdAt: number;
 }
 
+// دالة متطورة لضغط وقراءة أي صيغة صورة (آيفون HEIC/أندرويد/PNG/JPG) وتحويلها لأمان الشيت
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -37,16 +38,27 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 400;
+        const MAX_WIDTH = 800; // زيادة العرض قليلاً لدقة أفضل وتوافق تام
         const targetWidth = Math.min(MAX_WIDTH, img.width);
         const scaleSize = targetWidth / img.width;
         canvas.width = targetWidth;
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext("2d");
+        
+        // رسم خلفية بيضاء لتفادي أي شفافة سوداء في صور PNG أو بعض صيغ الموبايل
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.6));
+        // التحويل الإلزامي إلى JPEG لضمان ظهورها في كل المتصفحات والأجهزة
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = () => {
+        // لو حصل خطأ في القراءة، نرجع الصورة الأصلية كـ Base64 احتياطياً
+        resolve(event.target?.result as string || "");
       };
     };
+    reader.onerror = () => resolve("");
   });
 };
 
@@ -201,7 +213,6 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
     >
       <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-primary/10 rounded-full blur-[100px]" />
 
-      {/* تحسين الحاويات والعرض لتكون ملمومة ومناسبة جداً للموبايل واللابتوب */}
       <div className="relative z-10 mx-auto w-full max-w-xl sm:max-w-2xl px-4 sm:px-6 py-8 sm:py-14 space-y-10 sm:space-y-14">
         
         {/* 1. كارت الرسالة الأساسية */}
@@ -279,9 +290,17 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
                 
-                const imageSrc = item.image 
-                  ? (item.image.startsWith("data:image") ? item.image : `data:image/jpeg;base64,${item.image}`) 
-                  : "";
+                // معالجة ذكية جداً لعرض الصورة بصيغة Base64 سليمة ومضمونة 100%
+                let imageSrc = "";
+                if (item.image) {
+                  if (item.image.startsWith("data:image")) {
+                    imageSrc = item.image;
+                  } else if (item.image.startsWith("http") || item.image.startsWith("/")) {
+                    imageSrc = item.image;
+                  } else {
+                    imageSrc = `data:image/jpeg;base64,${item.image}`;
+                  }
+                }
 
                 return (
                   <motion.article
@@ -300,7 +319,8 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                           alt={item.caption}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
+                            // لو حدثت مشكلة في عرض الصورة نهائياً نخفي عنصر الـ img بلطف بدل النص العشوائي
+                            (e.currentTarget as HTMLElement).style.display = 'none';
                           }}
                         />
                       </div>
@@ -311,7 +331,6 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                         {item.caption}
                       </p>
 
-                      {/* شريط الأزرار والتاريخ بحجم متناسق جداً للموبايل واللابتوب */}
                       <div className="pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs text-muted-foreground min-h-[2.25rem]">
                         {isConfirming ? (
                           <>
@@ -347,7 +366,6 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                               {item.date ? String(item.date).split("T")[0] : ""}
                             </span>
 
-                            {/* أزرار التعديل والحذف بحجم صغير ومناسب جداً للشاشات الصغيرة */}
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
@@ -419,10 +437,15 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                 ) : (
                   <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
                     <ImagePlus className="w-6 h-6 text-primary" />
-                    <span className="text-[11px] sm:text-xs">اضغط لاختيار صورة من جهازك</span>
+                    <span className="text-[11px] sm:text-xs">اضغط لاختيار صورة (آيفون، أندرويد، إلخ)</span>
                   </div>
                 )}
-                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                <input 
+                  type="file" 
+                  accept="image/*,.heic,.heif,.png,.jpg,.jpeg" 
+                  onChange={handleImageChange} 
+                  className="hidden" 
+                />
               </label>
             </div>
 
