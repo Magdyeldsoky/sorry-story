@@ -28,7 +28,6 @@ interface MemoryItem {
   createdAt: number;
 }
 
-// دالة متطورة لضغط وقراءة أي صيغة صورة (آيفون HEIC/أندرويد/PNG/JPG) وتحويلها لأمان الشيت
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -38,25 +37,20 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 800; // زيادة العرض قليلاً لدقة أفضل وتوافق تام
+        const MAX_WIDTH = 500; // تصغير الحجم قليلاً لضمان حفظها بسلاسة في الشيت
         const targetWidth = Math.min(MAX_WIDTH, img.width);
         const scaleSize = targetWidth / img.width;
         canvas.width = targetWidth;
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext("2d");
         
-        // رسم خلفية بيضاء لتفادي أي شفافة سوداء في صور PNG أو بعض صيغ الموبايل
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        // التحويل الإلزامي إلى JPEG لضمان ظهورها في كل المتصفحات والأجهزة
-        resolve(canvas.toDataURL("image/jpeg", 0.7));
+        
+        resolve(canvas.toDataURL("image/jpeg", 0.5));
       };
-      img.onerror = () => {
-        // لو حصل خطأ في القراءة، نرجع الصورة الأصلية كـ Base64 احتياطياً
-        resolve(event.target?.result as string || "");
-      };
+      img.onerror = () => resolve("");
     };
     reader.onerror = () => resolve("");
   });
@@ -290,14 +284,13 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
                 
-                // معالجة ذكية جداً لعرض الصورة بصيغة Base64 سليمة ومضمونة 100%
+                // التأكد من أن الـ imageSrc يبدأ بـ data:image، وإذا كان نصاً طويلاً تالفاً نتجنب عرضه ككلام
                 let imageSrc = "";
-                if (item.image) {
+                if (item.image && typeof item.image === "string") {
                   if (item.image.startsWith("data:image")) {
                     imageSrc = item.image;
-                  } else if (item.image.startsWith("http") || item.image.startsWith("/")) {
-                    imageSrc = item.image;
-                  } else {
+                  } else if (item.image.length > 100 && !item.image.includes(" ")) {
+                    // معالجة النص الطويل المنسي كـ Base64
                     imageSrc = `data:image/jpeg;base64,${item.image}`;
                   }
                 }
@@ -319,7 +312,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                           alt={item.caption}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           onError={(e) => {
-                            // لو حدثت مشكلة في عرض الصورة نهائياً نخفي عنصر الـ img بلطف بدل النص العشوائي
+                            // لو حدثت مشكلة في قراءة الصورة، نخفي الـ img بلطف تماماً بدل ظهور أكواد
                             (e.currentTarget as HTMLElement).style.display = 'none';
                           }}
                         />
@@ -437,12 +430,12 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                 ) : (
                   <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
                     <ImagePlus className="w-6 h-6 text-primary" />
-                    <span className="text-[11px] sm:text-xs">اضغط لاختيار صورة (آيفون، أندرويد، إلخ)</span>
+                    <span className="text-[11px] sm:text-xs">اضغط لاختيار صورة من جهازك</span>
                   </div>
                 )}
                 <input 
                   type="file" 
-                  accept="image/*,.heic,.heif,.png,.jpg,.jpeg" 
+                  accept="image/*" 
                   onChange={handleImageChange} 
                   className="hidden" 
                 />
@@ -465,7 +458,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
               <label className="block text-xs font-medium text-foreground">التاريخ</label>
               <input
                 type="date"
-                value={date}
+                value=date
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-xl bg-background border border-input px-3.5 py-2 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
