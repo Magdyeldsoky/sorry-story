@@ -144,7 +144,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       if (editingId === id) resetForm();
       setConfirmDeleteId(null);
       setDeletingId(null);
-      showSuccess("تم مسح الذكرى من الألبوم نهائياً");
+      showSuccess("تم مسح البوست من الألبوم نهائياً");
       setTimeout(() => {
         fetchMemories();
       }, 2500);
@@ -181,8 +181,8 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
         setSubmitting(false);
         showSuccess(
           wasEditing
-            ? "تم تعديل الذكرى بنجاح ❤️"
-            : "تم حفظ الذكرى في الألبوم بنجاح ❤️"
+            ? "تم تعديل البوست بنجاح ❤️"
+            : "تم حفظ البوست في الألبوم بنجاح ❤️"
         );
       }, 2000);
     } catch (err) {
@@ -203,7 +203,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
 
       <div className="relative z-10 mx-auto w-full max-w-2xl px-4 sm:px-6 py-10 sm:py-14 space-y-12 sm:space-y-16">
         
-        {/* 1. كارت الرسالة الأساسية (ملموم، غير عريض، يظهر مرة واحدة بانيميشن رايق) */}
+        {/* 1. كارت الرسالة الأساسية (ملموم، غير عريض، يظهر مرة واحدة) */}
         <motion.section 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -277,6 +277,11 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
               {memories.map((item) => {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
+                
+                // معالجة الصورة لضمان عرضها كصورة حقيقية وليست ككتابات Base64
+                const imageSrc = item.image 
+                  ? (item.image.startsWith("data:image") ? item.image : `data:image/jpeg;base64,${item.image}`) 
+                  : "";
 
                 return (
                   <motion.article
@@ -288,12 +293,15 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                       editingId === item.id ? "border-primary/60" : "border-border"
                     }`}
                   >
-                    {item.image && (
+                    {imageSrc && (
                       <div className="relative w-full aspect-video bg-muted overflow-hidden">
                         <img
-                          src={item.image}
+                          src={imageSrc}
                           alt={item.caption}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
                         />
                       </div>
                     )}
@@ -402,7 +410,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs sm:text-sm font-medium text-foreground">صورة البوست (اختياري أو أساسي)</label>
+              <label className="block text-xs sm:text-sm font-medium text-foreground">صورة البوست</label>
               <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-border rounded-2xl cursor-pointer bg-background/50 hover:bg-accent/30 transition-colors overflow-hidden">
                 {imagePreview ? (
                   <img src={imagePreview} alt="Preview" className="w-full h-full object-contain p-2" />
