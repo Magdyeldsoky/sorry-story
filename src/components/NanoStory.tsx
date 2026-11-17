@@ -28,34 +28,6 @@ interface MemoryItem {
   createdAt: number;
 }
 
-const compressImage = (file: File): Promise<string> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 500; // تصغير الحجم قليلاً لضمان حفظها بسلاسة في الشيت
-        const targetWidth = Math.min(MAX_WIDTH, img.width);
-        const scaleSize = targetWidth / img.width;
-        canvas.width = targetWidth;
-        canvas.height = img.height * scaleSize;
-        const ctx = canvas.getContext("2d");
-        
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        resolve(canvas.toDataURL("image/jpeg", 0.5));
-      };
-      img.onerror = () => resolve("");
-    };
-    reader.onerror = () => resolve("");
-  });
-};
-
 export default function NanoStory({ paragraphs }: NanoStoryProps) {
   let globalWordIndex = 0;
 
@@ -66,6 +38,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [caption, setCaption] = useState("");
   const [date, setDate] = useState("");
 
@@ -84,7 +57,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       const res = await fetch(`/api/memories?t=${Date.now()}`, {
         cache: "no-store",
       });
+
       const data = await res.json();
+
       if (Array.isArray(data)) {
         const formatted = data
           .filter((item: any) => item.id && (item.caption || item.image))
@@ -95,6 +70,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             date: item.date || "",
             createdAt: item.createdAt ? Number(item.createdAt) : Date.now(),
           }));
+
         setMemories([...formatted].reverse());
       }
     } catch (err) {
@@ -109,8 +85,13 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   }, []);
 
   const postToSheet = async (payload: Record<string, unknown>) => {
-    const SHEET_API_URL = process.env.NEXT_PUBLIC_SHEET_API_URL || "";
-    await fetch(SHEET_API_URL, {
+    const sheetApiUrl = process.env.NEXT_PUBLIC_SHEET_API_URL || "";
+
+    if (!sheetApiUrl) {
+      throw new Error("Google Sheets API URL is missing");
+    }
+
+    await fetch(sheetApiUrl, {
       method: "POST",
       mode: "no-cors",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -118,16 +99,30 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
     });
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const compressed = await compressImage(file);
-    setImagePreview(compressed);
+
+    if (!file.type.startsWith("image/")) {
+      showSuccess("من فضلك اختار ملف صورة صحيح");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      showSuccess("حجم الصورة لازم يكون أقل من 10 ميجابايت");
+      e.target.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setImagePreview(URL.createObjectURL(file));
   };
 
   const resetForm = () => {
     setEditingId(null);
     setImagePreview("");
+    setSelectedFile(null);
     setCaption("");
     setDate("");
   };
@@ -135,7 +130,12 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   const handleEditClick = (item: MemoryItem) => {
     setConfirmDeleteId(null);
     setEditingId(item.id);
-    setImagePreview(item.image);
+    const oldImagePreview =
+      item.image && !item.image.startsWith("http") && !item.image.startsWith("data:image") && item.image.length > 100
+        ? `data:image/jpeg;base64,${item.image}`
+        : item.image;
+    setImagePreview(oldImagePreview || "");
+    setSelectedFile(null);
     setCaption(item.caption);
     const formattedDate = item.date ? String(item.date).split("T")[0] : "";
     setDate(formattedDate);
@@ -144,43 +144,83 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
+
     try {
       await postToSheet({ action: "delete", id });
       setMemories((prev) => prev.filter((m) => m.id !== id));
+
       if (editingId === id) resetForm();
+
       setConfirmDeleteId(null);
       setDeletingId(null);
       showSuccess("تم مسح البوست من الألبوم نهائياً");
+
       setTimeout(() => {
         fetchMemories();
       }, 2500);
     } catch (err) {
       console.error("Error deleting memory:", err);
       setDeletingId(null);
+      showSuccess("حصلت مشكلة أثناء مسح البوست");
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!imagePreview && !caption.trim()) return;
 
     setSubmitting(true);
-    const today = new Date().toISOString().split("T")[0];
-    const finalDate = date.trim() !== "" ? date : today;
-    const currentTime = Date.now();
-    const wasEditing = Boolean(editingId);
-
-    const payload = {
-      action: editingId ? "update" : "create",
-      id: editingId || currentTime.toString(),
-      image: imagePreview,
-      caption,
-      date: finalDate,
-      createdAt: currentTime,
-    };
 
     try {
+      // لو المستخدم اختار صورة جديدة، ارفعها إلى Cloudinary أولاً.
+      // لو بيعدل بوست ومختارش صورة جديدة، هنحتفظ برابط الصورة القديمة.
+      let finalImage = imagePreview;
+      let fileToUpload = selectedFile;
+
+      // لو بنعدل صورة قديمة محفوظة بصيغة Base64، نرفعها إلى Cloudinary
+      // حتى لا نعيد تخزين نص Base64 داخل Google Sheets.
+      if (!fileToUpload && editingId && imagePreview.startsWith("data:image")) {
+        const oldImageBlob = await fetch(imagePreview).then((response) => response.blob());
+        fileToUpload = new File([oldImageBlob], "memory-image.jpg", {
+          type: oldImageBlob.type || "image/jpeg",
+        });
+      }
+
+      if (fileToUpload) {
+        const uploadData = new FormData();
+        uploadData.append("file", fileToUpload);
+
+        const uploadResponse = await fetch("/api/upload", {
+          method: "POST",
+          body: uploadData,
+        });
+
+        const uploadResult = await uploadResponse.json();
+
+        if (!uploadResponse.ok || !uploadResult.url) {
+          throw new Error(uploadResult.error || "Image upload failed");
+        }
+
+        finalImage = uploadResult.url;
+      }
+
+      const today = new Date().toISOString().split("T")[0];
+      const finalDate = date.trim() !== "" ? date : today;
+      const currentTime = Date.now();
+      const wasEditing = Boolean(editingId);
+
+      const payload = {
+        action: editingId ? "update" : "create",
+        id: editingId || currentTime.toString(),
+        image: finalImage,
+        caption,
+        date: finalDate,
+        createdAt: currentTime,
+      };
+
       await postToSheet(payload);
+
       setTimeout(() => {
         fetchMemories();
         resetForm();
@@ -193,6 +233,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       }, 2000);
     } catch (err) {
       console.error("Error saving memory:", err);
+      showSuccess("حصلت مشكلة أثناء رفع الصورة أو حفظ البوست");
       setSubmitting(false);
     }
   };
@@ -208,9 +249,8 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-primary/10 rounded-full blur-[100px]" />
 
       <div className="relative z-10 mx-auto w-full max-w-xl sm:max-w-2xl px-4 sm:px-6 py-8 sm:py-14 space-y-10 sm:space-y-14">
-        
         {/* 1. كارت الرسالة الأساسية */}
-        <motion.section 
+        <motion.section
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
@@ -227,6 +267,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           <div className="space-y-4 text-sm sm:text-base leading-[2.1] sm:leading-[2.2] text-foreground/90 font-medium">
             {paragraphs.map((paragraph, pIdx) => {
               const words = paragraph.split(" ");
+
               return (
                 <p key={pIdx} className="flex flex-wrap justify-start gap-x-1.5 gap-y-1">
                   {words.map((word, wIdx) => {
@@ -238,9 +279,25 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                     return (
                       <motion.span
                         key={`${pIdx}-${wIdx}`}
-                        initial={{ opacity: 0, x: randomX, y: randomY, scale: 1.15, filter: "blur(4px)" }}
-                        animate={{ opacity: 1, x: 0, y: 0, scale: 1, filter: "blur(0px)" }}
-                        transition={{ duration: 0.35, delay: currentDelay, ease: [0.22, 1, 0.36, 1] }}
+                        initial={{
+                          opacity: 0,
+                          x: randomX,
+                          y: randomY,
+                          scale: 1.15,
+                          filter: "blur(4px)",
+                        }}
+                        animate={{
+                          opacity: 1,
+                          x: 0,
+                          y: 0,
+                          scale: 1,
+                          filter: "blur(0px)",
+                        }}
+                        transition={{
+                          duration: 0.35,
+                          delay: currentDelay,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
                         className="relative inline-block"
                       >
                         {word}
@@ -276,21 +333,26 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           ) : memories.length === 0 ? (
             <div className="flex flex-col items-center gap-2.5 py-10 text-center text-muted-foreground border-2 border-dashed border-border rounded-2xl sm:rounded-3xl bg-card/40 px-4">
               <ImagePlus className="w-7 h-7 text-primary/70" />
-              <p className="text-xs sm:text-sm">لسه مفيش بوستات أو ذكريات، ابدأ بأول ذكرى من الفورم أدناه</p>
+              <p className="text-xs sm:text-sm">
+                لسه مفيش بوستات أو ذكريات، ابدأ بأول ذكرى من الفورم أدناه
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-5">
               {memories.map((item) => {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
-                
-                // التأكد من أن الـ imageSrc يبدأ بـ data:image، وإذا كان نصاً طويلاً تالفاً نتجنب عرضه ككلام
+
+                // دعم روابط Cloudinary والصور القديمة السليمة فقط.
                 let imageSrc = "";
                 if (item.image && typeof item.image === "string") {
-                  if (item.image.startsWith("data:image")) {
+                  if (
+                    item.image.startsWith("https://") ||
+                    item.image.startsWith("http://") ||
+                    item.image.startsWith("data:image")
+                  ) {
                     imageSrc = item.image;
                   } else if (item.image.length > 100 && !item.image.includes(" ")) {
-                    // معالجة النص الطويل المنسي كـ Base64
                     imageSrc = `data:image/jpeg;base64,${item.image}`;
                   }
                 }
@@ -312,8 +374,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                           alt={item.caption}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           onError={(e) => {
-                            // لو حدثت مشكلة في قراءة الصورة، نخفي الـ img بلطف تماماً بدل ظهور أكواد
-                            (e.currentTarget as HTMLElement).style.display = 'none';
+                            (e.currentTarget as HTMLElement).style.display = "none";
                           }}
                         />
                       </div>
@@ -327,7 +388,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                       <div className="pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs text-muted-foreground min-h-[2.25rem]">
                         {isConfirming ? (
                           <>
-                            <span className="font-semibold text-destructive text-xs">مسح البوست ده؟</span>
+                            <span className="font-semibold text-destructive text-xs">
+                              مسح البوست ده؟
+                            </span>
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
@@ -423,27 +486,37 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">صورة البوست</label>
+              <label className="block text-xs font-medium text-foreground">
+                صورة البوست
+              </label>
               <label className="flex flex-col items-center justify-center w-full h-32 sm:h-36 border-2 border-dashed border-border rounded-xl sm:rounded-2xl cursor-pointer bg-background/50 hover:bg-accent/30 transition-colors overflow-hidden">
                 {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="w-full h-full object-contain p-2" />
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="w-full h-full object-contain p-2"
+                  />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
                     <ImagePlus className="w-6 h-6 text-primary" />
-                    <span className="text-[11px] sm:text-xs">اضغط لاختيار صورة من جهازك</span>
+                    <span className="text-[11px] sm:text-xs">
+                      اضغط لاختيار صورة من جهازك
+                    </span>
                   </div>
                 )}
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={handleImageChange} 
-                  className="hidden" 
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="hidden"
                 />
               </label>
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">اكتب الكلام أو التفاصيل هنا</label>
+              <label className="block text-xs font-medium text-foreground">
+                اكتب الكلام أو التفاصيل هنا
+              </label>
               <textarea
                 rows={3}
                 value={caption}
@@ -455,10 +528,12 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-foreground">التاريخ</label>
+              <label className="block text-xs font-medium text-foreground">
+                التاريخ
+              </label>
               <input
                 type="date"
-                value=date
+                value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-xl bg-background border border-input px-3.5 py-2 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
