@@ -15,6 +15,7 @@ import {
   X,
   Maximize2,
   User,
+  ArrowUpDown,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -32,7 +33,7 @@ interface MemoryItem {
 }
 
 /**
- * تطبيع مصدر الصورة سواء رابط مباشر، قاعدة بيانات، أو صيغة شيت
+- تطبيع مصدر الصورة سواء رابط مباشر، قاعدة بيانات، أو صيغة شيت
  */
 function normalizeImageSource(value: unknown): string {
   if (typeof value !== "string") return "";
@@ -68,11 +69,6 @@ function extractImageUrl(value: unknown): string {
   return "";
 }
 
-/**
- * فك الكابشن القديم (JSON في عمود caption) بكل الحالات الممكنة.
- * الداتا الجديدة بتيجي جاهزة من الـ Apps Script في captionMagdy / captionMena،
- * فالدالة دي مجرد شبكة أمان للصفوف القديمة.
- */
 function parseStoredCaptions(value: string): { captionMagdy: string; captionMena: string } {
   const raw = String(value ?? "").trim();
   if (!raw) return { captionMagdy: "", captionMena: "" };
@@ -86,7 +82,6 @@ function parseStoredCaptions(value: string): { captionMagdy: string; captionMena
     };
   };
 
-  // 1) parse مباشر (ويتكرر لو كان متخزن مرتين)
   let current: unknown = raw;
   for (let i = 0; i < 3; i++) {
     if (typeof current !== "string") break;
@@ -100,18 +95,14 @@ function parseStoredCaptions(value: string): { captionMagdy: string; captionMena
     return pick(current);
   }
 
-  // 2) إصلاح الـ quotes المزدوجة ("" بدل ")
   if (raw.includes('""')) {
     try {
       const fixed = raw.replace(/^"|"$/g, "").replace(/""/g, '"');
       const parsed = JSON.parse(fixed);
       if (parsed && typeof parsed === "object") return pick(parsed);
-    } catch {
-      // نكمل للمحاولة التالية
-    }
+    } catch {}
   }
 
-  // 3) regex كحل أخير
   const magdyMatch = raw.match(/"magdy"\s*:\s*"([\s\S]*?)"\s*(?:,\s*"mena"|\}\s*$)/);
   const menaMatch = raw.match(/"mena"\s*:\s*"([\s\S]*?)"\s*\}\s*$/);
   if (magdyMatch || menaMatch) {
@@ -123,7 +114,6 @@ function parseStoredCaptions(value: string): { captionMagdy: string; captionMena
     };
   }
 
-  // نص عادي قديم -> نحطه في خانة مجدي
   return { captionMagdy: raw, captionMena: "" };
 }
 
@@ -138,6 +128,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [successText, setSuccessText] = useState("");
+
+  // حالة الترتيب: 'desc' (من الأحدث للأقدم) أو 'asc' (من الأقدم للأحدث)
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
@@ -183,11 +176,9 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             const imageFoundInCaption = normalizedImage ? "" : extractImageUrl(rawCaption);
             const image = normalizedImage || imageFoundInCaption;
 
-            // الأساس: الحقول الجديدة اللي بيرجعها الـ Apps Script
             let magdyText = String(getValue("captionMagdy") || getValue("magdy") || "");
             let menaText = String(getValue("captionMena") || getValue("mena") || "");
 
-            // شبكة أمان: لو الـ JSON وصل جوه أي خانة نفكه
             if (looksLikeCaptionJson(magdyText)) {
               const parsed = parseStoredCaptions(magdyText);
               magdyText = parsed.captionMagdy;
@@ -215,7 +206,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           })
           .filter((item: MemoryItem) => item.id && (item.captionMagdy || item.captionMena || item.image));
 
-        setMemories([...formatted].reverse());
+        setMemories(formatted);
       }
     } catch (err) {
       console.error("Could not fetch memories:", err);
@@ -227,6 +218,24 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   useEffect(() => {
     fetchMemories();
   }, []);
+
+  // الترتيب المعتمد حصرياً على تاريخ البوست نفسه المرفق (ومقارنة وقت الإضافات لو التاريخ واحد)
+  const sortedMemories = [...memories].sort((a, b) => {
+    const dateA = a.date || "";
+    const dateB = b.date || "";
+
+    if (dateA && dateB && dateA !== dateB) {
+      // لو التواريخ مختلفة، نرتب حسب تاريخ البوست
+      return sortOrder === "desc" ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB);
+    }
+
+    // لو التاريخ واحد، نرتب حسب وقت الإنشاء (الأحدث إضافتاً كاحتياطي)
+    return sortOrder === "desc" ? b.createdAt - a.createdAt : a.createdAt - b.createdAt;
+  });
+
+  const toggleSortOrder = () => {
+    setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
+  };
 
   const postToSheet = async (payload: Record<string, unknown>) => {
     const sheetApiUrl = process.env.NEXT_PUBLIC_SHEET_API_URL || "";
@@ -355,7 +364,6 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       const currentTime = Date.now();
       const wasEditing = Boolean(editingId);
 
-      // كل كابشن بيتبعت في حقل مستقل، من غير JSON
       const payload = {
         action: editingId ? "update" : "create",
         id: editingId || currentTime.toString(),
@@ -458,18 +466,31 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           </div>
         </motion.section>
 
-        {/* فاصل توضيحي لمكان البوستات والذكريات */}
-        <div className="text-center space-y-1.5 pt-2">
-          <div className="inline-flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-3 py-1 rounded-full text-primary text-[11px] sm:text-xs font-bold">
-            <MessageSquareHeart className="w-3.5 h-3.5" />
-            <span>مساحة البوستات وذكرياتنا المشتركة</span>
+        {/* فاصل توضيحي لمكان البوستات والذكريات وزرار الترتيب */}
+        <div className="space-y-3 pt-2">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-card/60 backdrop-blur-md border border-border/80 px-4 py-3 rounded-2xl shadow-sm">
+            <div className="text-center sm:text-right space-y-0.5">
+              <div className="inline-flex items-center gap-1.5 text-primary text-[11px] sm:text-xs font-bold">
+                <MessageSquareHeart className="w-3.5 h-3.5" />
+                <span>مساحة البوستات وذكرياتنا المشتركة</span>
+              </div>
+              <h2 className="text-base sm:text-xl font-bold text-foreground">
+                ألبوم ذكرياتنا الحلوة 📸❤️
+              </h2>
+            </div>
+
+            {/* زرار تبديل الترتيب حسب تاريخ البوست */}
+            <button
+              type="button"
+              onClick={toggleSortOrder}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary/10 hover:bg-primary/15 border border-primary/20 text-primary font-bold text-xs transition-colors cursor-pointer"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <span>
+                {sortOrder === "desc" ? "حسب تاريخ البوست: من الأحدث للأقدم" : "حسب تاريخ البوست: من الأقدم للأحدث"}
+              </span>
+            </button>
           </div>
-          <h2 className="text-lg sm:text-2xl font-bold text-foreground">
-            ألبوم ذكرياتنا الحلوة 📸❤️
-          </h2>
-          <p className="text-xs text-muted-foreground max-w-xs sm:max-w-sm mx-auto">
-            هنا مكان البوستات واللحظات اللي بنوثقها سوا.
-          </p>
         </div>
 
         {/* 2. ألبوم الذكريات والبوستات */}
@@ -478,7 +499,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             <div className="flex justify-center py-6">
               <Loader2 className="w-6 h-6 text-primary animate-spin" />
             </div>
-          ) : memories.length === 0 ? (
+          ) : sortedMemories.length === 0 ? (
             <div className="flex flex-col items-center gap-2.5 py-10 text-center text-muted-foreground border-2 border-dashed border-border rounded-2xl sm:rounded-3xl bg-card/40 px-4">
               <ImagePlus className="w-7 h-7 text-primary/70" />
               <p className="text-xs sm:text-sm">
@@ -487,7 +508,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6">
-              {memories.map((item) => {
+              {sortedMemories.map((item) => {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
 
@@ -799,7 +820,10 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             onClick={() => setLightboxImage(null)}
             className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
           >
-            <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 type="button"
                 onClick={() => setLightboxImage(null)}
