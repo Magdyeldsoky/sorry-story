@@ -14,6 +14,7 @@ import {
   Trash2,
   X,
   Maximize2,
+  User,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -24,14 +25,14 @@ interface NanoStoryProps {
 interface MemoryItem {
   id: string;
   image: string;
-  caption: string;
+  captionMagdy: string;
+  captionMena: string;
   date: string;
   createdAt: number;
 }
 
 /**
- * Normalize image values coming from Google Sheets.
- * Supports direct URLs, data URLs, legacy base64 values, and =IMAGE("url") values.
+ * تطبيع مصدر الصورة سواء رابط مباشر، قاعدة بيانات، أو صيغة شيت
  */
 function normalizeImageSource(value: unknown): string {
   if (typeof value !== "string") return "";
@@ -39,16 +40,13 @@ function normalizeImageSource(value: unknown): string {
   let raw = value.trim();
   if (!raw) return "";
 
-  // Handle Google Sheets IMAGE("https://...") formulas.
   const formulaMatch = raw.match(/=IMAGE\(\s*["']([^"']+)["']/i);
   if (formulaMatch?.[1]) raw = formulaMatch[1].trim();
 
-  // Handle values wrapped in quotes.
   raw = raw.replace(/^["']|["']$/g, "").trim();
 
   if (/^(https?:\/\/|data:image\/)/i.test(raw)) return raw;
 
-  // Legacy Base64 image values.
   if (raw.length > 100 && /^[A-Za-z0-9+/=\s]+$/.test(raw)) {
     return `data:image/jpeg;base64,${raw.replace(/\s/g, "")}`;
   }
@@ -56,10 +54,6 @@ function normalizeImageSource(value: unknown): string {
   return "";
 }
 
-/**
- * Recover an image URL if it was mistakenly saved in the caption/message cell.
- * Cloudinary URLs are prioritized, then common direct image URLs.
- */
 function extractImageUrl(value: unknown): string {
   if (typeof value !== "string") return "";
   const text = value.trim();
@@ -74,12 +68,67 @@ function extractImageUrl(value: unknown): string {
   return "";
 }
 
-function removeImageUrlFromCaption(caption: string, imageUrl: string): string {
-  if (!caption || !imageUrl) return caption;
-  return caption
-    .replace(imageUrl, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+/**
+ * فك الكابشن القديم (JSON في عمود caption) بكل الحالات الممكنة.
+ * الداتا الجديدة بتيجي جاهزة من الـ Apps Script في captionMagdy / captionMena،
+ * فالدالة دي مجرد شبكة أمان للصفوف القديمة.
+ */
+function parseStoredCaptions(value: string): { captionMagdy: string; captionMena: string } {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { captionMagdy: "", captionMena: "" };
+
+  const pick = (obj: any) => {
+    const magdy = obj?.magdy ?? obj?.captionMagdy;
+    const mena = obj?.mena ?? obj?.captionMena;
+    return {
+      captionMagdy: typeof magdy === "string" ? magdy : "",
+      captionMena: typeof mena === "string" ? mena : "",
+    };
+  };
+
+  // 1) parse مباشر (ويتكرر لو كان متخزن مرتين)
+  let current: unknown = raw;
+  for (let i = 0; i < 3; i++) {
+    if (typeof current !== "string") break;
+    try {
+      current = JSON.parse(current);
+    } catch {
+      break;
+    }
+  }
+  if (current && typeof current === "object" && !Array.isArray(current)) {
+    return pick(current);
+  }
+
+  // 2) إصلاح الـ quotes المزدوجة ("" بدل ")
+  if (raw.includes('""')) {
+    try {
+      const fixed = raw.replace(/^"|"$/g, "").replace(/""/g, '"');
+      const parsed = JSON.parse(fixed);
+      if (parsed && typeof parsed === "object") return pick(parsed);
+    } catch {
+      // نكمل للمحاولة التالية
+    }
+  }
+
+  // 3) regex كحل أخير
+  const magdyMatch = raw.match(/"magdy"\s*:\s*"([\s\S]*?)"\s*(?:,\s*"mena"|\}\s*$)/);
+  const menaMatch = raw.match(/"mena"\s*:\s*"([\s\S]*?)"\s*\}\s*$/);
+  if (magdyMatch || menaMatch) {
+    const unescape = (s: string) =>
+      s.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    return {
+      captionMagdy: magdyMatch ? unescape(magdyMatch[1]) : "",
+      captionMena: menaMatch ? unescape(menaMatch[1]) : "",
+    };
+  }
+
+  // نص عادي قديم -> نحطه في خانة مجدي
+  return { captionMagdy: raw, captionMena: "" };
+}
+
+function looksLikeCaptionJson(text: string): boolean {
+  return /^\s*"?\{[\s\S]*"(magdy|mena|captionMagdy|captionMena)"\s*:/.test(text);
 }
 
 export default function NanoStory({ paragraphs }: NanoStoryProps) {
@@ -93,13 +142,13 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [caption, setCaption] = useState("");
+  const [captionMagdy, setCaptionMagdy] = useState("");
+  const [captionMena, setCaptionMena] = useState("");
   const [date, setDate] = useState("");
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // حالة الـ Lightbox لعرض الصورة بحجم كبير
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -111,16 +160,13 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
 
   const fetchMemories = async () => {
     try {
-      const res = await fetch(`/api/memories?t=${Date.now()}`, {
-        cache: "no-store",
-      });
-
-      const data = await res.json();
+      const resUrl = `/api/memories?t=${Date.now()}`;
+      const fetchedRes = await fetch(resUrl, { cache: "no-store" });
+      const data = await fetchedRes.json();
 
       if (Array.isArray(data)) {
         const formatted = data
           .map((item: any, index: number) => {
-            // Read both normal and differently-capitalized sheet headers.
             const getValue = (key: string) => {
               if (item?.[key] !== undefined && item?.[key] !== null) return item[key];
               const actualKey = Object.keys(item || {}).find(
@@ -132,22 +178,42 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
             const id = getValue("id");
             const rawImage = getValue("image") || getValue("photo") || getValue("imageUrl");
             const rawCaption = String(getValue("caption") || getValue("message") || "");
+
             const normalizedImage = normalizeImageSource(rawImage) || extractImageUrl(rawImage);
             const imageFoundInCaption = normalizedImage ? "" : extractImageUrl(rawCaption);
             const image = normalizedImage || imageFoundInCaption;
-            const caption = imageFoundInCaption
-              ? removeImageUrlFromCaption(rawCaption, imageFoundInCaption)
-              : rawCaption;
+
+            // الأساس: الحقول الجديدة اللي بيرجعها الـ Apps Script
+            let magdyText = String(getValue("captionMagdy") || getValue("magdy") || "");
+            let menaText = String(getValue("captionMena") || getValue("mena") || "");
+
+            // شبكة أمان: لو الـ JSON وصل جوه أي خانة نفكه
+            if (looksLikeCaptionJson(magdyText)) {
+              const parsed = parseStoredCaptions(magdyText);
+              magdyText = parsed.captionMagdy;
+              menaText = menaText || parsed.captionMena;
+            } else if (looksLikeCaptionJson(menaText)) {
+              const parsed = parseStoredCaptions(menaText);
+              menaText = parsed.captionMena;
+              magdyText = magdyText || parsed.captionMagdy;
+            } else if (!magdyText && !menaText && rawCaption) {
+              const parsed = parseStoredCaptions(rawCaption);
+              magdyText = parsed.captionMagdy;
+              menaText = parsed.captionMena;
+            }
+
+            const createdAtNum = Number(getValue("createdAt"));
 
             return {
               id: id ? String(id) : String(index + Date.now()),
               image,
-              caption,
-              date: getValue("date") || "",
-              createdAt: getValue("createdAt") ? Number(getValue("createdAt")) : Date.now(),
-            };
+              captionMagdy: magdyText,
+              captionMena: menaText,
+              date: String(getValue("date") || "").split("T")[0],
+              createdAt: Number.isFinite(createdAtNum) && createdAtNum > 0 ? createdAtNum : 0,
+            } as MemoryItem;
           })
-          .filter((item: MemoryItem) => item.id && (item.caption || item.image));
+          .filter((item: MemoryItem) => item.id && (item.captionMagdy || item.captionMena || item.image));
 
         setMemories([...formatted].reverse());
       }
@@ -201,20 +267,25 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
     setEditingId(null);
     setImagePreview("");
     setSelectedFile(null);
-    setCaption("");
+    setCaptionMagdy("");
+    setCaptionMena("");
     setDate("");
   };
 
   const handleEditClick = (item: MemoryItem) => {
     setConfirmDeleteId(null);
     setEditingId(item.id);
+
     let oldImagePreview = item.image;
     if (item.image && !item.image.startsWith("http") && !item.image.startsWith("data:image") && item.image.length > 100) {
       oldImagePreview = `data:image/jpeg;base64,${item.image}`;
     }
     setImagePreview(oldImagePreview || "");
     setSelectedFile(null);
-    setCaption(item.caption);
+
+    setCaptionMagdy(item.captionMagdy || "");
+    setCaptionMena(item.captionMena || "");
+
     const formattedDate = item.date ? String(item.date).split("T")[0] : "";
     setDate(formattedDate);
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -246,7 +317,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!imagePreview && !caption.trim()) return;
+    if (!imagePreview && !captionMagdy.trim() && !captionMena.trim()) return;
 
     setSubmitting(true);
 
@@ -284,11 +355,13 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
       const currentTime = Date.now();
       const wasEditing = Boolean(editingId);
 
+      // كل كابشن بيتبعت في حقل مستقل، من غير JSON
       const payload = {
         action: editingId ? "update" : "create",
         id: editingId || currentTime.toString(),
         image: finalImage,
-        caption,
+        captionMagdy: captionMagdy.trim(),
+        captionMena: captionMena.trim(),
         date: finalDate,
         createdAt: currentTime,
       };
@@ -413,13 +486,13 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5">
+            <div className="grid grid-cols-1 gap-6">
               {memories.map((item) => {
                 const isConfirming = confirmDeleteId === item.id;
                 const isDeleting = deletingId === item.id;
 
-                // تجهيز رابط الصورة سواء كان رابط Cloudinary أو صورة Base64 قديمة.
-                const imageSrc = normalizeImageSource(item.image) || extractImageUrl(item.caption);
+                const imageSrc = normalizeImageSource(item.image);
+                const accessibleCaption = [item.captionMagdy, item.captionMena].filter(Boolean).join(" - ");
 
                 return (
                   <motion.article
@@ -434,12 +507,12 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                     {imageSrc ? (
                       <div 
                         onClick={() => setLightboxImage(imageSrc)}
-                        className="relative w-full aspect-video bg-muted overflow-hidden cursor-pointer group/img"
+                        className="relative w-full aspect-[4/3] sm:aspect-video bg-muted overflow-hidden cursor-pointer group/img"
                         title="اضغط لتكبير الصورة"
                       >
                         <img
                           src={imageSrc}
-                          alt={item.caption || "ذكرى"}
+                          alt={accessibleCaption || "ذكرى"}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           onError={(e) => {
                             const target = e.currentTarget;
@@ -466,23 +539,65 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                       </div>
                     )}
 
-                    <div className="p-4 sm:p-5 flex-1 flex flex-col gap-3">
-                      <p className="flex-1 text-sm sm:text-base font-medium text-foreground leading-relaxed whitespace-pre-line break-words">
-                        {removeImageUrlFromCaption(item.caption, imageSrc)}
-                      </p>
+                    {/* خانات مجدي ومنه المعروضة بوضوح تحت الصورة */}
+                    <div className="p-4 sm:p-6 flex-1 flex flex-col gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4 items-stretch">
+                        {/* بوكس مجدي */}
+                        <div className="rounded-2xl bg-primary/5 border border-primary/20 p-3.5 sm:p-4 text-right flex flex-col justify-between space-y-2">
+                          <div className="flex items-center gap-1.5 border-b border-primary/15 pb-2">
+                            <span className="w-5 h-5 rounded-full bg-primary/15 text-primary flex items-center justify-center">
+                              <User className="w-3 h-3" />
+                            </span>
+                            <h4 className="text-xs sm:text-sm font-extrabold text-primary tracking-wide">
+                              مجدي
+                            </h4>
+                          </div>
+                          {item.captionMagdy ? (
+                            <p className="text-sm sm:text-[15px] font-medium text-foreground leading-[1.85] whitespace-pre-line break-words [overflow-wrap:anywhere] flex-1">
+                              {item.captionMagdy}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground/70 italic py-2 flex-1">
+                              لسه مجدي مكتبش كلامه هنا...
+                            </p>
+                          )}
+                        </div>
 
-                      <div className="pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs text-muted-foreground min-h-[2.25rem]">
+                        {/* بوكس منه */}
+                        <div className="rounded-2xl bg-rose-500/5 border border-rose-500/20 p-3.5 sm:p-4 text-right flex flex-col justify-between space-y-2">
+                          <div className="flex items-center gap-1.5 border-b border-rose-500/15 pb-2">
+                            <span className="w-5 h-5 rounded-full bg-rose-500/15 text-rose-500 flex items-center justify-center">
+                              <Heart className="w-3 h-3 fill-rose-500/30" />
+                            </span>
+                            <h4 className="text-xs sm:text-sm font-extrabold text-rose-500 tracking-wide">
+                              منه
+                            </h4>
+                          </div>
+                          {item.captionMena ? (
+                            <p className="text-sm sm:text-[15px] font-medium text-foreground leading-[1.85] whitespace-pre-line break-words [overflow-wrap:anywhere] flex-1">
+                              {item.captionMena}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground/70 italic py-2 flex-1">
+                              لسه منه مكتبتش كلامها هنا...
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* شريط التاريخ وأزرار التحكم */}
+                      <div className="pt-3 border-t border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-2 text-xs text-muted-foreground">
                         {isConfirming ? (
                           <>
                             <span className="font-semibold text-destructive text-xs">
                               مسح البوست ده؟
                             </span>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleDelete(item.id)}
                                 disabled={isDeleting}
-                                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-[11px]"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 px-2.5 py-1.5 sm:py-1 rounded-lg bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-[11px] sm:text-xs transition-colors"
                               >
                                 {isDeleting ? (
                                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -495,7 +610,7 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                                 type="button"
                                 onClick={() => setConfirmDeleteId(null)}
                                 disabled={isDeleting}
-                                className="px-2.5 py-1 rounded-md border border-border text-foreground cursor-pointer hover:bg-accent/40 text-[11px]"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 px-2.5 py-1.5 sm:py-1 rounded-lg border border-border text-foreground cursor-pointer hover:bg-accent/40 text-[11px] sm:text-xs transition-colors"
                               >
                                 إلغاء
                               </button>
@@ -508,20 +623,20 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
                               {item.date ? String(item.date).split("T")[0] : ""}
                             </span>
 
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleEditClick(item)}
-                                className="flex items-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-2.5 py-1 rounded-md border border-primary/20 transition-colors text-[11px] sm:text-xs"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 sm:py-1 rounded-lg border border-primary/20 transition-colors text-[11px] sm:text-xs"
                               >
                                 <Edit3 className="w-3 h-3" />
-                                <span>تعديل</span>
+                                <span>تعديل / إضافة تعليق</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteId(item.id)}
                                 aria-label="مسح البوست"
-                                className="flex items-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-2.5 py-1 rounded-md border border-destructive/20 transition-colors text-[11px] sm:text-xs"
+                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-2.5 py-1.5 sm:py-1 rounded-lg border border-destructive/20 transition-colors text-[11px] sm:text-xs"
                               >
                                 <Trash2 className="w-3 h-3" />
                                 <span>مسح</span>
@@ -599,18 +714,43 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
               </label>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">
-                اكتب الكلام أو التفاصيل هنا
-              </label>
-              <textarea
-                rows={3}
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="اكتب هنا التفاصيل أو الشعور في اللحظة دي..."
-                className="w-full rounded-xl bg-background border border-input px-3.5 py-2.5 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-                required
-              />
+            {/* خانات كتابة كلام مجدي ومنه */}
+            <div className="space-y-5">
+
+              {/* كابتشن مجدي */}
+              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-extrabold text-primary">
+                  <User className="w-4 h-4" />
+                  مجدي
+                </label>
+
+                <textarea
+                  rows={4}
+                  value={captionMagdy}
+                  onChange={(e) => setCaptionMagdy(e.target.value)}
+                  placeholder="اكتب كلام مجدي هنا..."
+                  className="w-full rounded-xl bg-background border border-primary/20 px-4 py-3 text-sm text-foreground leading-relaxed text-right focus:outline-none focus:ring-2 focus:ring-primary resize-y min-h-28"
+                  dir="rtl"
+                />
+              </div>
+
+              {/* كابتشن منه */}
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-extrabold text-rose-500">
+                  <Heart className="w-4 h-4" />
+                  منه
+                </label>
+
+                <textarea
+                  rows={4}
+                  value={captionMena}
+                  onChange={(e) => setCaptionMena(e.target.value)}
+                  placeholder="اكتبي كلام منه هنا..."
+                  className="w-full rounded-xl bg-background border border-rose-500/20 px-4 py-3 text-sm text-foreground leading-relaxed text-right focus:outline-none focus:ring-2 focus:ring-rose-500 resize-y min-h-28"
+                  dir="rtl"
+                />
+              </div>
+
             </div>
 
             <div className="space-y-1">

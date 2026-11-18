@@ -1,682 +1,268 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Calendar,
-  CheckCircle2,
-  Edit3,
-  Heart,
-  ImagePlus,
-  Loader2,
-  MessageSquareHeart,
-  Send,
-  Sparkles,
-  Trash2,
-  X,
-  Maximize2,
-} from "lucide-react";
+import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
-interface NanoStoryProps {
-  paragraphs: string[];
+interface NanoLoveTransitionProps {
+  onComplete: () => void;
 }
 
-interface MemoryItem {
-  id: string;
-  image: string;
-  caption: string;
-  date: string;
-  createdAt: number;
+interface Particle {
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  vx: number;
+  vy: number;
+  size: number;
+  alpha: number;
 }
 
-/**
- * Normalize image values coming from Google Sheets.
- * Supports direct URLs, data URLs, legacy base64 values, and =IMAGE("url") values.
- */
-function normalizeImageSource(value: unknown): string {
-  if (typeof value !== "string") return "";
-
-  let raw = value.trim();
-  if (!raw) return "";
-
-  // Handle Google Sheets IMAGE("https://...") formulas.
-  const formulaMatch = raw.match(/=IMAGE\(\s*["']([^"']+)["']/i);
-  if (formulaMatch?.[1]) raw = formulaMatch[1].trim();
-
-  // Handle values wrapped in quotes.
-  raw = raw.replace(/^["']|["']$/g, "").trim();
-
-  if (/^(https?:\/\/|data:image\/)/i.test(raw)) return raw;
-
-  // Legacy Base64 image values.
-  if (raw.length > 100 && /^[A-Za-z0-9+/=\s]+$/.test(raw)) {
-    return `data:image/jpeg;base64,${raw.replace(/\s/g, "")}`;
-  }
-
-  return "";
-}
-
-/**
- * Recover an image URL if it was mistakenly saved in the caption/message cell.
- * Cloudinary URLs are prioritized, then common direct image URLs.
- */
-function extractImageUrl(value: unknown): string {
-  if (typeof value !== "string") return "";
-  const text = value.trim();
-  if (!text) return "";
-
-  const cloudinaryMatch = text.match(/https?:\/\/res\.cloudinary\.com\/[^\s"'<>]+/i);
-  if (cloudinaryMatch?.[0]) return cloudinaryMatch[0].replace(/[),.;]+$/, "");
-
-  const imageMatch = text.match(/https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|gif|webp|avif|bmp)(?:\?[^\s"'<>]*)?/i);
-  if (imageMatch?.[0]) return imageMatch[0].replace(/[),.;]+$/, "");
-
-  return "";
-}
-
-function removeImageUrlFromCaption(caption: string, imageUrl: string): string {
-  if (!caption || !imageUrl) return caption;
-  return caption
-    .replace(imageUrl, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-export default function NanoStory({ paragraphs }: NanoStoryProps) {
-  let globalWordIndex = 0;
-
-  const [memories, setMemories] = useState<MemoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [successText, setSuccessText] = useState("");
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [caption, setCaption] = useState("");
-  const [date, setDate] = useState("");
-
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // حالة الـ Lightbox لعرض الصورة بحجم كبير
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-
-  const formRef = useRef<HTMLFormElement | null>(null);
-
-  const showSuccess = (text: string) => {
-    setSuccessText(text);
-    setTimeout(() => setSuccessText(""), 4000);
-  };
-
-  const fetchMemories = async () => {
-    try {
-      const res = await fetch(`/api/memories?t=${Date.now()}`, {
-        cache: "no-store",
-      });
-
-      const data = await res.json();
-
-      if (Array.isArray(data)) {
-        const formatted = data
-          .map((item: any, index: number) => {
-            // Read both normal and differently-capitalized sheet headers.
-            const getValue = (key: string) => {
-              if (item?.[key] !== undefined && item?.[key] !== null) return item[key];
-              const actualKey = Object.keys(item || {}).find(
-                (candidate) => candidate.toLowerCase().trim() === key.toLowerCase()
-              );
-              return actualKey ? item[actualKey] : "";
-            };
-
-            const id = getValue("id");
-            const rawImage = getValue("image") || getValue("photo") || getValue("imageUrl");
-            const rawCaption = String(getValue("caption") || getValue("message") || "");
-            const normalizedImage = normalizeImageSource(rawImage) || extractImageUrl(rawImage);
-            const imageFoundInCaption = normalizedImage ? "" : extractImageUrl(rawCaption);
-            const image = normalizedImage || imageFoundInCaption;
-            const caption = imageFoundInCaption
-              ? removeImageUrlFromCaption(rawCaption, imageFoundInCaption)
-              : rawCaption;
-
-            return {
-              id: id ? String(id) : String(index + Date.now()),
-              image,
-              caption,
-              date: getValue("date") || "",
-              createdAt: getValue("createdAt") ? Number(getValue("createdAt")) : Date.now(),
-            };
-          })
-          .filter((item: MemoryItem) => item.id && (item.caption || item.image));
-
-        setMemories([...formatted].reverse());
-      }
-    } catch (err) {
-      console.error("Could not fetch memories:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+export default function NanoLoveTransition({
+  onComplete,
+}: NanoLoveTransitionProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [stageText, setStageText] = useState("");
 
   useEffect(() => {
-    fetchMemories();
-  }, []);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
 
-  const postToSheet = async (payload: Record<string, unknown>) => {
-    const sheetApiUrl = process.env.NEXT_PUBLIC_SHEET_API_URL || "";
+    let animationFrameId: number;
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
 
-    if (!sheetApiUrl) {
-      throw new Error("Google Sheets API URL is missing");
+    const computedStyle = getComputedStyle(document.documentElement);
+    const primaryColor =
+      computedStyle.getPropertyValue("--primary").trim() || "#e11d48";
+
+    const isMobile = width < 768;
+    const TOTAL_PARTICLES = isMobile ? 1300 : 2200;
+    const particles: Particle[] = [];
+
+    for (let i = 0; i < TOTAL_PARTICLES; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        targetX: Math.random() * width,
+        targetY: Math.random() * height,
+        vx: 0,
+        vy: 0,
+        size: isMobile ? Math.random() * 1.8 + 1 : Math.random() * 2.2 + 1.3,
+        alpha: Math.random() * 0.4 + 0.6,
+      });
     }
 
-    await fetch(sheetApiUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    });
-  };
+    const getTextPoints = (text: string, customFontSize?: number) => {
+      const offscreen = document.createElement("canvas");
+      offscreen.width = width;
+      offscreen.height = height;
+      const offCtx = offscreen.getContext("2d");
+      if (!offCtx) return [];
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+      let fontSize = customFontSize || (isMobile ? Math.min(width * 0.38, height * 0.45) : Math.min(width * 0.35, height * 0.5));
+      if (text === "I") fontSize = isMobile ? Math.min(width * 0.5, height * 0.55) : Math.min(width * 0.45, height * 0.65);
 
-    if (!file.type.startsWith("image/")) {
-      showSuccess("من فضلك اختار ملف صورة صحيح");
-      e.target.value = "";
-      return;
-    }
+      offCtx.fillStyle = "#ffffff";
+      offCtx.font = `900 ${fontSize}px Montserrat, sans-serif`;
+      offCtx.textAlign = "center";
+      offCtx.textBaseline = "middle";
+      offCtx.fillText(text, width / 2, height / 2 - (isMobile ? height * 0.05 : 0));
 
-    if (file.size > 10 * 1024 * 1024) {
-      showSuccess("حجم الصورة لازم يكون أقل من 10 ميجابايت");
-      e.target.value = "";
-      return;
-    }
+      const imageData = offCtx.getImageData(0, 0, width, height).data;
+      const points: { x: number; y: number }[] = [];
 
-    setSelectedFile(file);
-    setImagePreview(URL.createObjectURL(file));
-  };
-
-  const resetForm = () => {
-    setEditingId(null);
-    setImagePreview("");
-    setSelectedFile(null);
-    setCaption("");
-    setDate("");
-  };
-
-  const handleEditClick = (item: MemoryItem) => {
-    setConfirmDeleteId(null);
-    setEditingId(item.id);
-    let oldImagePreview = item.image;
-    if (item.image && !item.image.startsWith("http") && !item.image.startsWith("data:image") && item.image.length > 100) {
-      oldImagePreview = `data:image/jpeg;base64,${item.image}`;
-    }
-    setImagePreview(oldImagePreview || "");
-    setSelectedFile(null);
-    setCaption(item.caption);
-    const formattedDate = item.date ? String(item.date).split("T")[0] : "";
-    setDate(formattedDate);
-    formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-
-    try {
-      await postToSheet({ action: "delete", id });
-      setMemories((prev) => prev.filter((m) => m.id !== id));
-
-      if (editingId === id) resetForm();
-
-      setConfirmDeleteId(null);
-      setDeletingId(null);
-      showSuccess("تم مسح البوست من الألبوم نهائياً");
-
-      setTimeout(() => {
-        fetchMemories();
-      }, 2500);
-    } catch (err) {
-      console.error("Error deleting memory:", err);
-      setDeletingId(null);
-      showSuccess("حصلت مشكلة أثناء مسح البوست");
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!imagePreview && !caption.trim()) return;
-
-    setSubmitting(true);
-
-    try {
-      let finalImage = imagePreview;
-      let fileToUpload = selectedFile;
-
-      if (!fileToUpload && editingId && imagePreview.startsWith("data:image")) {
-        const oldImageBlob = await fetch(imagePreview).then((response) => response.blob());
-        fileToUpload = new File([oldImageBlob], "memory-image.jpg", {
-          type: oldImageBlob.type || "image/jpeg",
-        });
-      }
-
-      if (fileToUpload) {
-        const uploadData = new FormData();
-        uploadData.append("file", fileToUpload);
-
-        const uploadResponse = await fetch("/api/upload", {
-          method: "POST",
-          body: uploadData,
-        });
-
-        const uploadResult = await uploadResponse.json();
-
-        if (!uploadResponse.ok || !uploadResult.url) {
-          throw new Error(uploadResult.error || "Image upload failed");
+      const step = isMobile ? 3 : 5;
+      for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+          const index = (y * width + x) * 4;
+          if (imageData[index + 3] > 128) {
+            points.push({ x, y });
+          }
         }
+      }
+      return points;
+    };
 
-        finalImage = uploadResult.url;
+    const getFilledHeartPoints = () => {
+      const offscreen = document.createElement("canvas");
+      offscreen.width = width;
+      offscreen.height = height;
+      const offCtx = offscreen.getContext("2d");
+      if (!offCtx) return [];
+
+      const scale = isMobile ? Math.min(width, height) * 0.013 : Math.min(width, height) * 0.019;
+      const centerX = width / 2;
+      const centerY = height / 2 - (isMobile ? height * 0.08 : height * 0.04);
+
+      offCtx.fillStyle = "#ffffff";
+      offCtx.beginPath();
+      for (let t = 0; t <= Math.PI * 2; t += 0.01) {
+        const x = 16 * Math.pow(Math.sin(t), 3);
+        const y = -(
+          13 * Math.cos(t) -
+          5 * Math.cos(2 * t) -
+          2 * Math.cos(3 * t) -
+          Math.cos(4 * t)
+        );
+
+        const px = centerX + x * scale;
+        const py = centerY + y * scale;
+
+        if (t === 0) {
+          offCtx.moveTo(px, py);
+        } else {
+          offCtx.lineTo(px, py);
+        }
+      }
+      offCtx.closePath();
+      offCtx.fill();
+
+      const imageData = offCtx.getImageData(0, 0, width, height).data;
+      const points: { x: number; y: number }[] = [];
+
+      const step = isMobile ? 4 : 8;
+      for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+          const index = (y * width + x) * 4;
+          if (imageData[index + 3] > 128) {
+            points.push({ x, y });
+          }
+        }
+      }
+      return points;
+    };
+
+    const assignTargets = (points: { x: number; y: number }[]) => {
+      for (let i = points.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [points[i], points[j]] = [points[j], points[i]];
       }
 
-      const today = new Date().toISOString().split("T")[0];
-      const finalDate = date.trim() !== "" ? date : today;
-      const currentTime = Date.now();
-      const wasEditing = Boolean(editingId);
+      for (let i = 0; i < particles.length; i++) {
+        if (points.length > 0) {
+          const pt = points[i % points.length];
+          particles[i].targetX = pt.x;
+          particles[i].targetY = pt.y;
+        }
+      }
+    };
 
-      const payload = {
-        action: editingId ? "update" : "create",
-        id: editingId || currentTime.toString(),
-        image: finalImage,
-        caption,
-        date: finalDate,
-        createdAt: currentTime,
-      };
+    const scatterParticles = () => {
+      for (let i = 0; i < particles.length; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const force = 8 + Math.random() * 16;
+        particles[i].vx += Math.cos(angle) * force;
+        particles[i].vy += Math.sin(angle) * force;
+        particles[i].targetX = Math.random() * width;
+        particles[i].targetY = Math.random() * height;
+      }
+    };
 
-      await postToSheet(payload);
+    const timeouts: NodeJS.Timeout[] = [];
 
+    assignTargets(getTextPoints("I"));
+
+    timeouts.push(setTimeout(() => scatterParticles(), 1900));
+    timeouts.push(setTimeout(() => assignTargets(getTextPoints("LOVE")), 2350));
+
+    timeouts.push(setTimeout(() => scatterParticles(), 4300));
+    timeouts.push(setTimeout(() => assignTargets(getTextPoints("YOU")), 4750));
+
+    timeouts.push(setTimeout(() => scatterParticles(), 6700));
+    timeouts.push(
       setTimeout(() => {
-        fetchMemories();
-        resetForm();
-        setSubmitting(false);
-        showSuccess(
-          wasEditing
-            ? "تم تعديل البوست بنجاح ❤️"
-            : "تم حفظ البوست في الألبوم بنجاح ❤️"
-        );
-      }, 2000);
-    } catch (err) {
-      console.error("Error saving memory:", err);
-      showSuccess("حصلت مشكلة أثناء رفع الصورة أو حفظ البوست");
-      setSubmitting(false);
-    }
-  };
+        assignTargets(getTextPoints("Menna", isMobile ? 70 : 130));
+      }, 7150)
+    );
+
+    timeouts.push(setTimeout(() => scatterParticles(), 9200));
+    timeouts.push(
+      setTimeout(() => {
+        assignTargets(getFilledHeartPoints());
+        setStageText("I love you, Menna ❤️");
+      }, 9700)
+    );
+
+    timeouts.push(
+      setTimeout(() => {
+        onComplete();
+      }, 13200)
+    );
+
+    const render = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        const dx = p.targetX - p.x;
+        const dy = p.targetY - p.y;
+
+        p.vx += dx * 0.065;
+        p.vy += dy * 0.065;
+
+        p.vx *= 0.78;
+        p.vy *= 0.78;
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = primaryColor;
+        ctx.shadowColor = primaryColor;
+        ctx.shadowBlur = isMobile ? 6 : 10;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      timeouts.forEach(clearTimeout);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [onComplete]);
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 1 }}
-      dir="rtl"
-      className="min-h-screen relative overflow-hidden"
+      exit={{ opacity: 0, filter: "blur(12px)" }}
+      transition={{ duration: 0.8 }}
+      className="fixed inset-0 z-50 bg-background flex flex-col items-center justify-end pb-16 sm:justify-center sm:pb-0 overflow-hidden px-4"
     >
-      <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-primary/10 rounded-full blur-[100px]" />
+      <canvas ref={canvasRef} className="absolute inset-0 block w-full h-full pointer-events-none" />
 
-      <div className="relative z-10 mx-auto w-full max-w-xl sm:max-w-2xl px-4 sm:px-6 py-8 sm:py-14 space-y-10 sm:space-y-14">
-        
-        {/* كارت الرسالة الأساسية */}
-        <motion.section
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="bg-card/90 backdrop-blur-xl border border-border/80 rounded-2xl sm:rounded-3xl p-5 sm:p-9 shadow-xl space-y-4 sm:space-y-6 text-right"
+      {stageText && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          className="relative z-10 text-center bg-card/90 backdrop-blur-md border border-border/80 py-3.5 px-6 sm:px-8 rounded-2xl shadow-2xl max-w-xs sm:max-w-md"
         >
-          <div className="flex items-center justify-between border-b border-border/60 pb-3 sm:pb-4">
-            <div className="flex items-center gap-2 text-primary text-xs sm:text-sm font-bold">
-              <Sparkles className="w-4 h-4" />
-              <span>رسالة من القلب</span>
-            </div>
-            <Heart className="w-4.5 h-4.5 text-primary fill-primary/30 animate-pulse" />
-          </div>
-
-          <div className="space-y-4 text-sm sm:text-base leading-[2.1] sm:leading-[2.2] text-foreground/90 font-medium">
-            {paragraphs.map((paragraph, pIdx) => {
-              const words = paragraph.split(" ");
-
-              return (
-                <p key={pIdx} className="flex flex-wrap justify-start gap-x-1.5 gap-y-1">
-                  {words.map((word, wIdx) => {
-                    const currentDelay = globalWordIndex * 0.04;
-                    globalWordIndex++;
-                    const randomX = ((wIdx * 17) % 15) - 7;
-                    const randomY = ((pIdx * 13 + wIdx) % 12) - 6;
-
-                    return (
-                      <motion.span
-                        key={`${pIdx}-${wIdx}`}
-                        initial={{
-                          opacity: 0,
-                          x: randomX,
-                          y: randomY,
-                          scale: 1.15,
-                          filter: "blur(4px)",
-                        }}
-                        animate={{
-                          opacity: 1,
-                          x: 0,
-                          y: 0,
-                          scale: 1,
-                          filter: "blur(0px)",
-                        }}
-                        transition={{
-                          duration: 0.35,
-                          delay: currentDelay,
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
-                        className="relative inline-block"
-                      >
-                        {word}
-                      </motion.span>
-                    );
-                  })}
-                </p>
-              );
-            })}
-          </div>
-        </motion.section>
-
-        {/* فاصل توضيحي لمكان البوستات والذكريات */}
-        <div className="text-center space-y-1.5 pt-2">
-          <div className="inline-flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-3 py-1 rounded-full text-primary text-[11px] sm:text-xs font-bold">
-            <MessageSquareHeart className="w-3.5 h-3.5" />
-            <span>مساحة البوستات وذكرياتنا المشتركة</span>
-          </div>
-          <h2 className="text-lg sm:text-2xl font-bold text-foreground">
-            ألبوم ذكرياتنا الحلوة 📸❤️
-          </h2>
-          <p className="text-xs text-muted-foreground max-w-xs sm:max-w-sm mx-auto">
-            هنا مكان البوستات واللحظات اللي بنوثقها سوا.
+          <p className="text-xl sm:text-3xl font-bold text-foreground tracking-wide font-sans">
+            {stageText}
           </p>
-        </div>
-
-        {/* 2. ألبوم الذكريات والبوستات */}
-        <section className="space-y-6">
-          {loading ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="w-6 h-6 text-primary animate-spin" />
-            </div>
-          ) : memories.length === 0 ? (
-            <div className="flex flex-col items-center gap-2.5 py-10 text-center text-muted-foreground border-2 border-dashed border-border rounded-2xl sm:rounded-3xl bg-card/40 px-4">
-              <ImagePlus className="w-7 h-7 text-primary/70" />
-              <p className="text-xs sm:text-sm">
-                لسه مفيش بوستات أو ذكريات، ابدأ بأول ذكرى من الفورم أدناه
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-5">
-              {memories.map((item) => {
-                const isConfirming = confirmDeleteId === item.id;
-                const isDeleting = deletingId === item.id;
-
-                // تجهيز رابط الصورة سواء كان رابط Cloudinary أو صورة Base64 قديمة.
-                const imageSrc = normalizeImageSource(item.image) || extractImageUrl(item.caption);
-
-                return (
-                  <motion.article
-                    key={item.id}
-                    layout
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`bg-card/90 backdrop-blur-md border rounded-2xl sm:rounded-3xl overflow-hidden shadow-md flex flex-col group transition-colors ${
-                      editingId === item.id ? "border-primary/60" : "border-border"
-                    }`}
-                  >
-                    {imageSrc ? (
-                      <div 
-                        onClick={() => setLightboxImage(imageSrc)}
-                        className="relative w-full aspect-[4/3] sm:aspect-video bg-muted overflow-hidden cursor-pointer group/img"
-                        title="اضغط لتكبير الصورة"
-                      >
-                        <img
-                          src={imageSrc}
-                          alt={item.caption || "ذكرى"}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            target.style.display = "none";
-                            const parent = target.parentElement;
-                            if (parent && !parent.querySelector(".fallback-placeholder")) {
-                              const fallback = document.createElement("div");
-                              fallback.className = "fallback-placeholder flex flex-col items-center justify-center h-full text-muted-foreground gap-1 text-xs bg-muted/80";
-                              fallback.innerHTML = `<svg class="w-6 h-6 text-primary/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>تعذر تحميل الصورة</span>`;
-                              parent.appendChild(fallback);
-                            }
-                          }}
-                        />
-                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                          <span className="bg-background/80 backdrop-blur-md text-foreground px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 shadow-lg">
-                            <Maximize2 className="w-3.5 h-3.5" /> تكبير الصورة
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-full aspect-video bg-muted/60 flex flex-col items-center justify-center text-muted-foreground gap-1 text-xs">
-                        <ImagePlus className="w-6 h-6 text-primary/40" />
-                        <span>لا توجد صورة مرفقة</span>
-                      </div>
-                    )}
-
-                    <div className="p-4 sm:p-5 flex-1 flex flex-col gap-3">
-                      <p className="flex-1 text-[15px] sm:text-base font-medium text-foreground text-right leading-[1.9] sm:leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
-                        {removeImageUrlFromCaption(item.caption, imageSrc)}
-                      </p>
-
-                      <div className="pt-3 border-t border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-2 text-xs text-muted-foreground">
-                        {isConfirming ? (
-                          <>
-                            <span className="font-semibold text-destructive text-xs">
-                              مسح البوست ده؟
-                            </span>
-                            <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(item.id)}
-                                disabled={isDeleting}
-                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 px-2.5 py-1.5 sm:py-1 rounded-lg bg-destructive text-white font-semibold cursor-pointer disabled:opacity-60 text-[11px] sm:text-xs transition-colors"
-                              >
-                                {isDeleting ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3 h-3" />
-                                )}
-                                <span>تأكيد</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(null)}
-                                disabled={isDeleting}
-                                className="w-full sm:w-auto min-h-9 sm:min-h-8 px-2.5 py-1.5 sm:py-1 rounded-lg border border-border text-foreground cursor-pointer hover:bg-accent/40 text-[11px] sm:text-xs transition-colors"
-                              >
-                                إلغاء
-                              </button>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <span className="flex items-center gap-1 font-mono text-[11px] sm:text-xs">
-                              <Calendar className="w-3 h-3 text-primary" />
-                              {item.date ? String(item.date).split("T")[0] : ""}
-                            </span>
-
-                            <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleEditClick(item)}
-                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 text-primary font-semibold cursor-pointer bg-primary/10 hover:bg-primary/15 px-2.5 py-1.5 sm:py-1 rounded-lg border border-primary/20 transition-colors text-[11px] sm:text-xs"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                <span>تعديل</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(item.id)}
-                                aria-label="مسح البوست"
-                                className="w-full sm:w-auto min-h-9 sm:min-h-8 flex items-center justify-center gap-1 text-destructive font-semibold cursor-pointer bg-destructive/10 hover:bg-destructive/15 px-2.5 py-1.5 sm:py-1 rounded-lg border border-destructive/20 transition-colors text-[11px] sm:text-xs"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                <span>مسح</span>
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </motion.article>
-                );
-              })}
-            </div>
-          )}
-
-          {successText && (
-            <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-400 flex items-center justify-center gap-2 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span className="font-bold">{successText}</span>
-            </div>
-          )}
-        </section>
-
-        {/* 3. فورم إضافة / تعديل بوست أو ذكرى جديدة */}
-        <section>
-          <form
-            ref={formRef}
-            onSubmit={handleSubmit}
-            className={`bg-card/95 backdrop-blur-xl border rounded-2xl sm:rounded-3xl p-5 sm:p-7 shadow-xl space-y-4 transition-colors ${
-              editingId ? "border-primary/60" : "border-border"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/60">
-              <h3 className="text-sm sm:text-base font-bold text-foreground flex items-center gap-1.5">
-                <MessageSquareHeart className="w-4 h-4 text-primary" />
-                <span>{editingId ? "تعديل البوست ✏️" : "أضف بوست أو ذكرى جديدة ✨"}</span>
-              </h3>
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="flex items-center gap-1 text-[11px] sm:text-xs text-destructive hover:underline cursor-pointer"
-                >
-                  <X className="w-3 h-3" />
-                  إلغاء التعديل
-                </button>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">
-                صورة البوست
-              </label>
-              <label className="flex flex-col items-center justify-center w-full h-32 sm:h-36 border-2 border-dashed border-border rounded-xl sm:rounded-2xl cursor-pointer bg-background/50 hover:bg-accent/30 transition-colors overflow-hidden">
-                {imagePreview ? (
-                  <img
-                    src={imagePreview}
-                    alt="Preview"
-                    className="w-full h-full object-contain p-2"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
-                    <ImagePlus className="w-6 h-6 text-primary" />
-                    <span className="text-[11px] sm:text-xs">
-                      اضغط لاختيار صورة من جهازك
-                    </span>
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">
-                اكتب الكلام أو التفاصيل هنا
-              </label>
-              <textarea
-                rows={3}
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="اكتب هنا التفاصيل أو الشعور في اللحظة دي..."
-                className="w-full rounded-xl bg-background border border-input px-3.5 py-2.5 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-                required
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-foreground">
-                التاريخ
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-xl bg-background border border-input px-3.5 py-2 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <p className="text-[10px] sm:text-[11px] text-muted-foreground">
-                لو تركته فارغاً سيتم تسجيل تاريخ اليوم تلقائياً
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full flex items-center justify-center gap-2 py-3 px-5 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-bold text-xs sm:text-sm shadow-md hover:opacity-95 transition-all cursor-pointer disabled:opacity-60"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>جاري النشر والحفظ...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  <span>{editingId ? "حفظ التعديلات" : "نشر البوست في الألبوم ❤️"}</span>
-                </>
-              )}
-            </button>
-          </form>
-        </section>
-      </div>
-
-      {/* نافذة العرض المكبر (Lightbox) */}
-      <AnimatePresence>
-        {lightboxImage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setLightboxImage(null)}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
-          >
-            <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                onClick={() => setLightboxImage(null)}
-                className="absolute -top-12 right-0 text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors cursor-pointer"
-                aria-label="إغلاق"
-              >
-                <X className="w-6 h-6" />
-              </button>
-              <img
-                src={lightboxImage}
-                alt="Expanded memory"
-                className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-white/10"
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </motion.div>
+      )}
     </motion.div>
   );
 }
