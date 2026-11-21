@@ -20,7 +20,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 interface NanoStoryProps {
-  paragraphs: string[];
+  firstParagraphs: string[];
+  remainingParagraphs: string[];
 }
 
 interface MemoryItem {
@@ -121,10 +122,110 @@ function looksLikeCaptionJson(text: string): boolean {
   return /^\s*"?\{[\s\S]*"(magdy|mena|captionMagdy|captionMena)"\s*:/.test(text);
 }
 
-export default function NanoStory({ paragraphs }: NanoStoryProps) {
-  let globalWordIndex = 0;
+/**
+ * مجموعة فقرات قابلة للفتح والقفل (بتظهر كلماتها بأنيميشن لما تتفتح)
+ */
+function CollapsibleGroup({
+  id,
+  title,
+  paragraphs,
+  isOpen,
+  onToggle,
+}: {
+  id: string;
+  title: string;
+  paragraphs: string[];
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  let wordCounter = 0;
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls={id}
+        className="w-full flex items-center justify-between gap-3 p-4 text-right cursor-pointer hover:bg-primary/5 transition-colors"
+      >
+        <span className="font-bold text-primary text-sm">{title}</span>
+        <span className="text-xs font-semibold text-muted-foreground">
+          {isOpen ? "إغلاق ▲" : "اضغط للقراءة ▼"}
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            id={id}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.35, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 pt-2 border-t border-primary/10 space-y-4">
+              {paragraphs.map((paragraph, pIdx) => (
+                <p
+                  key={pIdx}
+                  className="flex flex-wrap justify-start gap-x-1.5 gap-y-1"
+                >
+                  {paragraph.split(" ").map((word, wIdx) => {
+                    const delay = Math.min(wordCounter, 120) * 0.03;
+                    wordCounter++;
+                    const randomX = ((wIdx * 17) % 15) - 7;
+                    const randomY = ((pIdx * 13 + wIdx) % 12) - 6;
+
+                    return (
+                      <motion.span
+                        key={`${pIdx}-${wIdx}`}
+                        initial={{
+                          opacity: 0,
+                          x: randomX,
+                          y: randomY,
+                          scale: 1.15,
+                          filter: "blur(4px)",
+                        }}
+                        animate={{
+                          opacity: 1,
+                          x: 0,
+                          y: 0,
+                          scale: 1,
+                          filter: "blur(0px)",
+                        }}
+                        transition={{
+                          duration: 0.35,
+                          delay,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                        className="relative inline-block"
+                      >
+                        {word}
+                      </motion.span>
+                    );
+                  })}
+                </p>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+export default function NanoStory({
+  firstParagraphs,
+  remainingParagraphs,
+}: NanoStoryProps) {
+  // حالة فتح/قفل كل مجموعة من الفقرات
+  const [openGroups, setOpenGroups] = useState({ first: false, remaining: false });
+  const toggleGroup = (key: "first" | "remaining") =>
+    setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [openParagraphs, setOpenParagraphs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [successText, setSuccessText] = useState("");
@@ -421,48 +522,20 @@ export default function NanoStory({ paragraphs }: NanoStoryProps) {
           </div>
 
           <div className="space-y-4 text-sm sm:text-base leading-[2.1] sm:leading-[2.2] text-foreground/90 font-medium">
-            {paragraphs.map((paragraph, pIdx) => {
-              const words = paragraph.split(" ");
-
-              return (
-                <p key={pIdx} className="flex flex-wrap justify-start gap-x-1.5 gap-y-1">
-                  {words.map((word, wIdx) => {
-                    const currentDelay = globalWordIndex * 0.04;
-                    globalWordIndex++;
-                    const randomX = ((wIdx * 17) % 15) - 7;
-                    const randomY = ((pIdx * 13 + wIdx) % 12) - 6;
-
-                    return (
-                      <motion.span
-                        key={`${pIdx}-${wIdx}`}
-                        initial={{
-                          opacity: 0,
-                          x: randomX,
-                          y: randomY,
-                          scale: 1.15,
-                          filter: "blur(4px)",
-                        }}
-                        animate={{
-                          opacity: 1,
-                          x: 0,
-                          y: 0,
-                          scale: 1,
-                          filter: "blur(0px)",
-                        }}
-                        transition={{
-                          duration: 0.35,
-                          delay: currentDelay,
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
-                        className="relative inline-block"
-                      >
-                        {word}
-                      </motion.span>
-                    );
-                  })}
-                </p>
-              );
-            })}
+            <CollapsibleGroup
+              id="first-group"
+              title="اول اعتذار"
+              paragraphs={firstParagraphs}
+              isOpen={openGroups.first}
+              onToggle={() => toggleGroup("first")}
+            />
+            <CollapsibleGroup
+              id="remaining-group"
+              title="اول اعتراف بالحب"
+              paragraphs={remainingParagraphs}
+              isOpen={openGroups.remaining}
+              onToggle={() => toggleGroup("remaining")}
+            />
           </div>
         </motion.section>
 
