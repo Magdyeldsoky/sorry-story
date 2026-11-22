@@ -123,6 +123,38 @@ function looksLikeCaptionJson(text: string): boolean {
 }
 
 /**
+ * ضغط الصورة قبل الرفع (بتصغّرها وبتحوّلها JPEG) عشان تعدّي حد Vercel
+ */
+async function compressImage(file: File, maxSize = 1600, quality = 0.82): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+
+    const blob = await new Promise<Blob | null>((res) =>
+      canvas.toBlob(res, "image/jpeg", quality)
+    );
+    if (!blob) return file;
+
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", {
+      type: "image/jpeg",
+    });
+  } catch {
+    return file; // لو الضغط فشل نرفع الأصلية
+  }
+}
+
+/**
  * مجموعة فقرات قابلة للفتح والقفل (بتظهر كلماتها بأنيميشن لما تتفتح)
  */
 function CollapsibleGroup({
@@ -353,24 +385,27 @@ export default function NanoStory({
     });
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
       showSuccess("من فضلك اختار ملف صورة صحيح");
-      e.target.value = "";
+      input.value = "";
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showSuccess("حجم الصورة لازم يكون أقل من 10 ميجابايت");
-      e.target.value = "";
+    const compressed = await compressImage(file);
+
+    if (compressed.size > 4 * 1024 * 1024) {
+      showSuccess("الصورة كبيرة أوي، جرب صورة تانية");
+      input.value = "";
       return;
     }
 
-    setSelectedFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    setSelectedFile(compressed);
+    setImagePreview(URL.createObjectURL(compressed));
   };
 
   const resetForm = () => {
@@ -451,10 +486,15 @@ export default function NanoStory({
           body: uploadData,
         });
 
-        const uploadResult = await uploadResponse.json();
+        let uploadResult: any = null;
+        try {
+          uploadResult = await uploadResponse.json();
+        } catch {}
 
-        if (!uploadResponse.ok || !uploadResult.url) {
-          throw new Error(uploadResult.error || "Image upload failed");
+        if (!uploadResponse.ok || !uploadResult?.url) {
+          throw new Error(
+            uploadResult?.error || `Upload failed (${uploadResponse.status})`
+          );
         }
 
         finalImage = uploadResult.url;
@@ -489,7 +529,11 @@ export default function NanoStory({
       }, 2000);
     } catch (err) {
       console.error("Error saving memory:", err);
-      showSuccess("حصلت مشكلة أثناء رفع الصورة أو حفظ البوست");
+      showSuccess(
+        `حصلت مشكلة أثناء رفع الصورة أو حفظ البوست${
+          err instanceof Error ? ` (${err.message})` : ""
+        }`
+      );
       setSubmitting(false);
     }
   };
